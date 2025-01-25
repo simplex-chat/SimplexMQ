@@ -1,7 +1,7 @@
 cabal-version: 1.12
 
 name:           simplexmq
-version:        6.3.0.2
+version:        6.3.0.200
 synopsis:       SimpleXMQ message broker
 description:    This package includes <./docs/Simplex-Messaging-Server.html server>,
                 <./docs/Simplex-Messaging-Client.html client> and

@@ -1156,9 +1156,10 @@ client
   ms
   clnt@Client {clientId, subscriptions, ntfSubscriptions, rcvQ, sndQ, sessionId, procThreads} = do
     labelMyThread . B.unpack $ "client $" <> encode sessionId <> " commands"
+    let THandleParams {thVersion} = thParams'
     forever $
       atomically (readTBQueue rcvQ)
-        >>= mapM processCommand
+        >>= mapM (processCommand thVersion)
         >>= mapM_ reply . L.nonEmpty . catMaybes . L.toList
   where
     reply :: MonadIO m => NonEmpty (Transmission BrokerMsg) -> m ()
@@ -1243,8 +1244,8 @@ client
     mkIncProxyStats ps psOwn own sel = do
       incStat $ sel ps
       when own $ incStat $ sel psOwn
-    processCommand :: (Maybe (StoreQueue s, QueueRec), Transmission Cmd) -> M (Maybe (Transmission BrokerMsg))
-    processCommand (q_, (corrId, entId, cmd)) = case cmd of
+    processCommand :: VersionSMP -> (Maybe (StoreQueue s, QueueRec), Transmission Cmd) -> M (Maybe (Transmission BrokerMsg))
+    processCommand clntVersion (q_, (corrId, entId, cmd)) = case cmd of
       Cmd SProxiedClient command -> processProxiedCmd (corrId, entId, command)
       Cmd SSender command -> Just <$> case command of
         SKEY sKey ->
@@ -1506,7 +1507,7 @@ client
 
         sendMessage :: MsgFlags -> MsgBody -> StoreQueue s -> QueueRec -> M (Transmission BrokerMsg)
         sendMessage msgFlags msgBody q qr
-          | B.length msgBody > maxMessageLength thVersion = do
+          | B.length msgBody > maxMessageLength clntVersion = do
               stats <- asks serverStats
               incStat $ msgSentLarge stats
               pure $ err LARGE_MSG
@@ -1545,7 +1546,6 @@ client
                           liftIO $ updatePeriodStats (activeQueues stats) (recipientId qr)
                           pure ok
           where
-            THandleParams {thVersion} = thParams'
             mkMessage :: MsgId -> C.MaxLenBS MaxMessageLen -> IO Message
             mkMessage msgId body = do
               msgTs <- getSystemTime
@@ -1654,7 +1654,7 @@ client
               Left r -> pure r
               -- rejectOrVerify filters allowed commands, no need to repeat it here.
               -- INTERNAL is used because processCommand never returns Nothing for sender commands (could be extracted for better types).
-              Right t''@(_, (corrId', entId', _)) -> fromMaybe (corrId', entId', ERR INTERNAL) <$> lift (processCommand t'')
+              Right t''@(_, (corrId', entId', _)) -> fromMaybe (corrId', entId', ERR INTERNAL) <$> lift (processCommand fwdVersion t'')
           -- encode response
           r' <- case batchTransmissions (batch clntTHParams) (blockSize clntTHParams) [Right (Nothing, encodeTransmission clntTHParams r)] of
             [] -> throwE INTERNAL -- at least 1 item is guaranteed from NonEmpty/Right
