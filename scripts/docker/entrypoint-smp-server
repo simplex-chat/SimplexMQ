@@ -1,48 +1,87 @@
 #!/usr/bin/env sh
+set -e
+
 confd='/etc/opt/simplex'
-logd='/var/opt/simplex/'
+cert_path='/certificates'
 
 # Check if server has been initialized
 if [ ! -f "${confd}/smp-server.ini" ]; then
   # If not, determine ip or domain
   case "${ADDR}" in
-    '') printf 'Please specify $ADDR environment variable.\n'; exit 1 ;;
+    '')
+      printf 'Please specify $ADDR environment variable.\n'
+      exit 1
+      ;;
+
+    # Determine domain or IPv6
     *[a-zA-Z]*)
       case "${ADDR}" in
-        *:*) set -- --ip "${ADDR}" ;;
-        *) set -- -n "${ADDR}" ;;
+        # IPv6
+        *:*)
+          set -- --ip "${ADDR}"
+          ;;
+
+        # Domain
+        *)
+          case "${ADDR}" in
+            # It's in domain format
+            *.*)
+              # Determine the base domain
+              ADDR_BASE="$(printf '%s' "$ADDR" | awk -F. '{print $(NF-1)"."$NF}')"
+              set -- --fqdn "${ADDR}" --own-domains="${ADDR_BASE}"
+              ;;
+
+            # Incorrect domain
+            *)
+              printf 'Incorrect $ADDR environment variable. Please specify the correct one in format: smp1.example.org / example.org \n'
+              exit 1
+              ;;
+          esac
       esac
       ;;
-    *) set -- --ip "${ADDR}" ;;
+
+    # Assume everything else is IPv4
+    *)
+      set -- --ip "${ADDR}" ;;
   esac
 
   # Optionally, set password
   case "${PASS}" in
-    '') set -- "$@" --no-password ;;
-    *) set -- "$@" --password "${PASS}" ;;
+    # Empty value = no password
+    '')
+      set -- "$@" --no-password
+      ;;
+
+    # Assume that everything else is a password
+    *)
+      set -- "$@" --password "${PASS}"
+      ;;
   esac
 
   # And init certificates and configs
-  smp-server init -y -l "$@"
+  smp-server init --yes \
+                  --store-log \
+                  --daily-stats \
+                  --source-code \
+                  "$@" > /dev/null 2>&1
+
+  # Fix path to certificates
+  if [ -n "${WEB_MANUAL}" ]; then
+    sed -i -e 's|^[^#]*https: |#&|' \
+           -e 's|^[^#]*cert: |#&|' \
+           -e 's|^[^#]*key: |#&|' \
+           -e 's|^port:.*|port: 5223|' \
+           "${confd}/smp-server.ini"
+  else
+    sed -i -e "s|cert: /etc/opt/simplex/web.crt|cert: $cert_path/$ADDR.crt|" \
+           -e "s|key: /etc/opt/simplex/web.key|key: $cert_path/$ADDR.key|" \
+           "${confd}/smp-server.ini"
+  fi
 fi
 
 # Backup store log just in case
-#
-# Uses the UTC (universal) time zone and this
-# format: YYYY-mm-dd'T'HH:MM:SS
-# year, month, day, letter T, hour, minute, second
-#
-# This is the ISO 8601 format without the time zone at the end.
-#
-_file="${logd}/smp-server-store.log"
-if [ -f "${_file}" ]; then
-  _backup_extension="$(date -u '+%Y-%m-%dT%H:%M:%S')"
-  cp -v -p "${_file}" "${_file}.${_backup_extension:-date-failed}"
-  unset -v _backup_extension
-fi
-unset -v _file
+DOCKER=true /usr/local/bin/simplex-servers-stopscript smp-server
 
 # Finally, run smp-sever. Notice that "exec" here is important:
 # smp-server replaces our helper script, so that it can catch INT signal
 exec smp-server start +RTS -N -RTS
-

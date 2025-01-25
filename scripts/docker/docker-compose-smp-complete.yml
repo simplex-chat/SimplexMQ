@@ -1,0 +1,67 @@
+name: SimpleX Chat - smp-server
+
+services:
+  oneshot:
+    image: ubuntu:latest
+    environment:
+      CADDYCONF: |
+        ${CADDY_OPTS:-}
+
+        http://{$$ADDR} {
+            redir https://{$$ADDR}{uri} permanent
+        }
+
+        {$$ADDR}:8443 {
+            tls {
+                key_type rsa4096
+            }
+        }
+    command: sh -c 'if [ ! -f /etc/caddy/Caddyfile ]; then printf "$${CADDYCONF}" > /etc/caddy/Caddyfile; fi'
+    volumes:
+      - ./caddy_conf:/etc/caddy
+
+  caddy:
+    image: caddy:latest
+    depends_on:
+      oneshot:
+        condition: service_completed_successfully
+    cap_add:
+      - NET_ADMIN
+    environment:
+      ADDR: ${ADDR?"Please specify the domain."}
+    volumes:
+      - ./caddy_conf:/etc/caddy
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - 80:80
+    restart: unless-stopped
+    healthcheck:
+      test: "test -d /data/caddy/certificates/${CERT_PATH:-acme-v02.api.letsencrypt.org-directory}/${ADDR} || exit 1"
+      interval: 1s
+      retries: 60
+
+  smp-server:
+    image: ${SIMPLEX_IMAGE:-simplexchat/smp-server:latest}
+    depends_on:
+      caddy:
+        condition: service_healthy
+    environment:
+      ADDR: ${ADDR?"Please specify the domain."}
+      PASS: ${PASS:-}
+    volumes:
+      - ./smp_configs:/etc/opt/simplex
+      - ./smp_state:/var/opt/simplex
+      - type: volume
+        source: caddy_data
+        target: /certificates
+        volume:
+          subpath: "caddy/certificates/${CERT_PATH:-acme-v02.api.letsencrypt.org-directory}/${ADDR}"
+    ports:
+      - 443:443
+      - 5223:5223
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

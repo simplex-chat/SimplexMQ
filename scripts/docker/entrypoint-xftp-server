@@ -1,50 +1,90 @@
 #!/usr/bin/env sh
+set -eu
+
 confd='/etc/opt/simplex-xftp'
-logd='/var/opt/simplex-xftp'
 
 # Check if server has been initialized
 if [ ! -f "${confd}/file-server.ini" ]; then
   # If not, determine ip or domain
   case "${ADDR}" in
-    '') printf 'Please specify $ADDR environment variable.\n'; exit 1 ;;
+    '')
+      printf 'Please specify $ADDR environment variable.\n'
+      exit 1
+      ;;
+
+    # Determine domain or IPv6
     *[a-zA-Z]*)
       case "${ADDR}" in
-        *:*) set -- --ip "${ADDR}" ;;
-        *) set -- -n "${ADDR}" ;;
+        # IPv6
+        *:*)
+          set -- --ip "${ADDR}"
+          ;;
+
+        # Domain
+        *)
+          case "${ADDR}" in
+            # Check if format is correct
+            *.*)
+              set -- --fqdn "${ADDR}"
+              ;;
+
+            # Incorrect domain
+            *)
+              printf 'Incorrect $ADDR environment variable. Please specify the correct one in format: smp1.example.org / example.org \n'
+              exit 1
+              ;;
+          esac
+          ;;
       esac
       ;;
-    *) set -- --ip "${ADDR}" ;;
+
+    # Assume everything else is IPv4
+    *)
+      set -- --ip "${ADDR}"
+      ;;
   esac
 
-  # Set quota
+  # Set global disk quota
   case "${QUOTA}" in
-    '') printf 'Please specify $QUOTA environment variable.\n'; exit 1 ;;
-    *GB) QUOTA="$(printf ${QUOTA} | tr '[:upper:]' '[:lower:]')"; set -- "$@" --quota "${QUOTA}" ;;
-    *gb) set -- "$@" --quota "${QUOTA}" ;;
-    *) printf 'Wrong format. Format should be: 1gb, 10gb, 100gb.\n'; exit 1 ;;
+    '')
+      printf 'Please specify $QUOTA environment variable.\n'
+      exit 1
+      ;;
+
+    # Incorrect format in uppercase, but automagically workaround this, replacing characters to lowercase
+    *GB)
+      QUOTA="$(printf '%s' "${QUOTA}" | tr '[:upper:]' '[:lower:]')"
+      set -- "$@" --quota "${QUOTA}"
+      ;;
+
+    # Correct format  
+    *gb)
+      set -- "$@" --quota "${QUOTA}"
+      ;;
+
+    # Incorrect format
+    *)
+      printf 'Wrong format. Format should be: 1gb, 10gb, 100gb.\n'
+      exit 1
+      ;;
   esac
 
   # Init the certificates and configs
-  xftp-server init -l -p /srv/xftp "$@"
+  xftp-server init --store-log \
+                   --path /srv/xftp \
+                   "$@" > /dev/null 2>&1
+
+  # Optionally, set password
+  if [ -n "${PASS}" ]; then
+    sed -i -e "/^# create_password:/a create_password: $PASS" \
+           "${confd}/file-server.ini"
+  fi
 fi
 
 # Backup store log just in case
-#
-# Uses the UTC (universal) time zone and this
-# format: YYYY-mm-dd'T'HH:MM:SS
-# year, month, day, letter T, hour, minute, second
-#
-# This is the ISO 8601 format without the time zone at the end.
-#
-_file="${logd}/file-server-store.log"
-if [ -f "${_file}" ]; then
-  _backup_extension="$(date -u '+%Y-%m-%dT%H:%M:%S')"
-  cp -v -p "${_file}" "${_file}.${_backup_extension:-date-failed}"
-  unset -v _backup_extension
-fi
-unset -v _file
+
+DOCKER=true /usr/local/bin/simplex-servers-stopscript xftp-server
 
 # Finally, run xftp-sever. Notice that "exec" here is important:
 # smp-server replaces our helper script, so that it can catch INT signal
 exec xftp-server start +RTS -N -RTS
-

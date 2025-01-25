@@ -1,0 +1,16 @@
+name: SimpleX Chat - xftp-server
+
+services:
+  xftp-server:
+    image: ${SIMPLEX_XFTP_IMAGE:-simplexchat/xftp-server:latest}
+    environment:
+      ADDR: ${ADDR?"Please specify the domain."}
+      QUOTA: ${QUOTA?"Please specify disk quota."}
+      PASS: ${PASS:-}
+    volumes:
+      - ./xftp_configs:/etc/opt/simplex-xftp
+      - ./xftp_state:/var/opt/simplex-xftp
+      - ./xftp_files:/srv/xftp
+    ports:
+      - 443:443
+    restart: unless-stopped

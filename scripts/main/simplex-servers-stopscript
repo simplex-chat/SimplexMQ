@@ -148,8 +148,10 @@ xftp_cleanup() {
 
 main() {
 	type="${1:-}"
-  
-	checks
+
+  if [ -z "${DOCKER+x}" ]; then
+  	checks
+  fi
 
 	case "$type" in
 		smp-server)
