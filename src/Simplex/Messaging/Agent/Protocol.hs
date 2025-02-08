@@ -167,7 +167,7 @@ import Data.Time.Clock.System (SystemTime)
 import Data.Type.Equality
 import Data.Typeable ()
 import Data.Word (Word16, Word32)
-import Simplex.Messaging.Agent.Store.DB (FromField (..), ToField (..))
+import Simplex.Messaging.Agent.Store.DB (FromField (..), ToField (..), blobFieldDecoder, fromTextField_)
 import Simplex.FileTransfer.Description
 import Simplex.FileTransfer.Protocol (FileParty (..))
 import Simplex.FileTransfer.Transport (XFTPErrorType)

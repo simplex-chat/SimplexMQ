@@ -238,10 +238,10 @@ import Data.X509
 import Data.X509.Validation (Fingerprint (..), getFingerprint)
 import GHC.TypeLits (ErrorMessage (..), KnownNat, Nat, TypeError, natVal, type (+))
 import Network.Transport.Internal (decodeWord16, encodeWord16)
-import Simplex.Messaging.Agent.Store.DB (Binary (..), FromField (..), ToField (..))
+import Simplex.Messaging.Agent.Store.DB (Binary (..), FromField (..), ToField (..), blobFieldDecoder)
 import Simplex.Messaging.Encoding
 import Simplex.Messaging.Encoding.String
-import Simplex.Messaging.Parsers (blobFieldDecoder, parseAll, parseString)
+import Simplex.Messaging.Parsers (parseAll, parseString)
 import Simplex.Messaging.Util ((<$?>))
 
 -- | Cryptographic algorithms.

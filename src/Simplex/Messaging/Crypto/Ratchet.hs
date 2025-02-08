@@ -111,12 +111,12 @@ import Data.Type.Equality
 import Data.Typeable (Typeable)
 import Data.Word (Word16, Word32)
 import Simplex.Messaging.Agent.QueryString
-import Simplex.Messaging.Agent.Store.DB (Binary (..), BoolInt (..), FromField (..), ToField (..))
+import Simplex.Messaging.Agent.Store.DB (Binary (..), BoolInt (..), FromField (..), ToField (..), blobFieldDecoder)
 import Simplex.Messaging.Crypto
 import Simplex.Messaging.Crypto.SNTRUP761.Bindings
 import Simplex.Messaging.Encoding
 import Simplex.Messaging.Encoding.String
-import Simplex.Messaging.Parsers (blobFieldDecoder, defaultJSON, parseE, parseE')
+import Simplex.Messaging.Parsers (defaultJSON, parseE, parseE')
 import Simplex.Messaging.Util (($>>=), (<$?>))
 import Simplex.Messaging.Version
 import Simplex.Messaging.Version.Internal

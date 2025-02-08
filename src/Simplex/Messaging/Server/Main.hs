@@ -1,4 +1,5 @@
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
@@ -44,9 +45,9 @@ import Simplex.Messaging.Server.CLI
 import Simplex.Messaging.Server.Env.STM
 import Simplex.Messaging.Server.Expiration
 import Simplex.Messaging.Server.Information
-import Simplex.Messaging.Server.MsgStore.Journal (JournalStoreConfig (..))
-import Simplex.Messaging.Server.MsgStore.Types (AMSType (..), SMSType (..), newMsgStore)
-import Simplex.Messaging.Server.QueueStore.STM (readQueueStore)
+import Simplex.Messaging.Server.MsgStore.Journal (JournalMsgStore (..), JournalQueue, JournalStoreConfig (..), stmQueueStore)
+import Simplex.Messaging.Server.MsgStore.Types (MsgStoreClass (..), QSType (..), SQSType (..), SMSType (..), newMsgStore)
+import Simplex.Messaging.Server.StoreLog.ReadWrite (readQueueStore)
 import Simplex.Messaging.Transport (simplexMQVersion, supportedProxyClientSMPRelayVRange, supportedServerSMPRelayVRange)
 import Simplex.Messaging.Transport.Client (SocksProxy, TransportHost (..), defaultSocksProxy)
 import Simplex.Messaging.Transport.Server (ServerCredentials (..), TransportServerConfig (..), defaultTransportServerConfig)
@@ -106,14 +107,14 @@ smpServerCLI_ generateSite serveStaticFiles attachStaticFiles cfgPath logPath =
               confirmOrExit
                 ("WARNING: message log file " <> storeMsgsFilePath <> " will be imported to journal directory " <> storeMsgsJournalDir)
                 "Messages not imported"
-              ms <- newJournalMsgStore
-              readQueueStore storeLogFile ms
+              ms <- newJournalMsgStore SQSMemory
+              readQueueStore @(JournalQueue 'QSMemory) storeLogFile $ stmQueueStore ms
               msgStats <- importMessages True ms storeMsgsFilePath Nothing -- no expiration
               putStrLn "Import completed"
               printMessageStats "Messages" msgStats
               putStrLn $ case readMsgStoreType ini of
-                Right (AMSType SMSMemory) -> "store_messages set to `memory`, update it to `journal` in INI file"
-                Right (AMSType SMSJournal) -> "store_messages set to `journal`"
+                Right (ASType (SType _ SMSMemory)) -> "store_messages set to `memory`, update it to `journal` in INI file"
+                Right (ASType (SType _ SMSJournal)) -> "store_messages set to `journal`"
                 Left e -> e <> ", update it to `journal` in INI file"
         JCExport
           | msgsFileExists && msgsDirExists -> exitConfigureMsgStorage
@@ -124,13 +125,13 @@ smpServerCLI_ generateSite serveStaticFiles attachStaticFiles cfgPath logPath =
               confirmOrExit
                 ("WARNING: journal directory " <> storeMsgsJournalDir <> " will be exported to message log file " <> storeMsgsFilePath)
                 "Journal not exported"
-              ms <- newJournalMsgStore
-              readQueueStore storeLogFile ms
+              ms <- newJournalMsgStore SQSMemory
+              readQueueStore @(JournalQueue 'QSMemory) storeLogFile $ stmQueueStore ms
               exportMessages True ms storeMsgsFilePath False
               putStrLn "Export completed"
               putStrLn $ case readMsgStoreType ini of
-                Right (AMSType SMSMemory) -> "store_messages set to `memory`"
-                Right (AMSType SMSJournal) -> "store_messages set to `journal`, update it to `memory` in INI file"
+                Right (ASType (SType _ SMSMemory)) -> "store_messages set to `memory`"
+                Right (ASType (SType _ SMSJournal)) -> "store_messages set to `journal`, update it to `memory` in INI file"
                 Left e -> e <> ", update it to `memory` in INI file"
         JCDelete
           | not msgsDirExists -> do
@@ -147,7 +148,8 @@ smpServerCLI_ generateSite serveStaticFiles attachStaticFiles cfgPath logPath =
       doesFileExist iniFile >>= \case
         True -> readIniFile iniFile >>= either exitError a
         _ -> exitError $ "Error: server is not initialized (" <> iniFile <> " does not exist).\nRun `" <> executableName <> " init`."
-    newJournalMsgStore = newMsgStore JournalStoreConfig {storePath = storeMsgsJournalDir, pathParts = journalMsgStoreDepth, quota = defaultMsgQueueQuota, maxMsgCount = defaultMaxJournalMsgCount, maxStateLines = defaultMaxJournalStateLines, stateTailSize = defaultStateTailSize, idleInterval = checkInterval defaultMessageExpiration}
+    newJournalMsgStore :: SQSType s -> IO (JournalMsgStore s)
+    newJournalMsgStore queueStoreType = newMsgStore JournalStoreConfig {storePath = storeMsgsJournalDir, pathParts = journalMsgStoreDepth, queueStoreType, quota = defaultMsgQueueQuota, maxMsgCount = defaultMaxJournalMsgCount, maxStateLines = defaultMaxJournalStateLines, stateTailSize = defaultStateTailSize, idleInterval = checkInterval defaultMessageExpiration}
     iniFile = combine cfgPath "smp-server.ini"
     serverVersion = "SMP server v" <> simplexMQVersion
     defaultServerPorts = "5223,443"
@@ -156,11 +158,11 @@ smpServerCLI_ generateSite serveStaticFiles attachStaticFiles cfgPath logPath =
     storeMsgsFilePath = combine logPath "smp-server-messages.log"
     storeMsgsJournalDir = combine logPath "messages"
     storeNtfsFilePath = combine logPath "smp-server-ntfs.log"
-    readMsgStoreType :: Ini -> Either String AMSType
+    readMsgStoreType :: Ini -> Either String AStoreType
     readMsgStoreType = textToMsgStoreType . fromRight "memory" . lookupValue "STORE_LOG" "store_messages"
     textToMsgStoreType = \case
-      "memory" -> Right $ AMSType SMSMemory
-      "journal" -> Right $ AMSType SMSJournal
+      "memory" -> Right $ ASType (SType SQSMemory SMSMemory)
+      "journal" -> Right $ ASType (SType SQSMemory SMSJournal)
       s -> Left $ "invalid store_messages: " <> T.unpack s
     httpsCertFile = combine cfgPath "web.crt"
     httpsKeyFile = combine cfgPath "web.key"
@@ -403,8 +405,8 @@ smpServerCLI_ generateSite serveStaticFiles attachStaticFiles cfgPath logPath =
               httpCredentials = (\WebHttpsParams {key, cert} -> ServerCredentials {caCertificateFile = Nothing, privateKeyFile = key, certificateFile = cert}) <$> webHttpsParams',
               storeLogFile = enableStoreLog $> storeLogFilePath,
               storeMsgsFile = case iniMsgStoreType of
-                AMSType SMSMemory -> restoreMessagesFile storeMsgsFilePath
-                AMSType SMSJournal -> Just storeMsgsJournalDir,
+                ASType (SType _ SMSMemory) -> restoreMessagesFile storeMsgsFilePath
+                ASType (SType _ SMSJournal) -> Just storeMsgsJournalDir,
               storeNtfsFile = restoreMessagesFile storeNtfsFilePath,
               -- allow creating new queues by default
               allowNewQueues = fromMaybe True $ iniOnOff "AUTH" "new_queues" ini,
@@ -484,20 +486,20 @@ smpServerCLI_ generateSite serveStaticFiles attachStaticFiles cfgPath logPath =
             pure WebHttpsParams {port, cert, key}
         webStaticPath' = eitherToMaybe $ T.unpack <$> lookupValue "WEB" "static_path" ini
 
-    checkMsgStoreMode :: AMSType -> IO ()
+    checkMsgStoreMode :: AStoreType -> IO ()
     checkMsgStoreMode mode = do
       msgsDirExists <- doesDirectoryExist storeMsgsJournalDir
       msgsFileExists <- doesFileExist storeMsgsFilePath
       case mode of
         _ | msgsFileExists && msgsDirExists -> exitConfigureMsgStorage
-        AMSType SMSJournal
+        ASType (SType _ SMSJournal) -- TODO [postgres]
           | msgsFileExists -> do
               putStrLn $ "Error: store_messages is `journal` with " <> storeMsgsFilePath <> " file present."
               putStrLn "Set store_messages to `memory` or use `smp-server journal export` to migrate."
               exitFailure
           | not msgsDirExists ->
               putStrLn $ "store_messages is `journal`, " <> storeMsgsJournalDir <> " directory will be created."
-        AMSType SMSMemory
+        ASType (SType _ SMSMemory)
           | msgsDirExists -> do
               putStrLn $ "Error: store_messages is `memory` with " <> storeMsgsJournalDir <> " directory present."
               putStrLn "Set store_messages to `journal` or use `smp-server journal import` to migrate."

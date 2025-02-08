@@ -148,8 +148,6 @@ library
   if flag(client_postgres)
       exposed-modules:
           Simplex.Messaging.Agent.Store.Postgres
-          Simplex.Messaging.Agent.Store.Postgres.Common
-          Simplex.Messaging.Agent.Store.Postgres.DB
           Simplex.Messaging.Agent.Store.Postgres.Migrations
           Simplex.Messaging.Agent.Store.Postgres.Migrations.M20241210_initial
       if !flag(client_library)
@@ -208,6 +206,8 @@ library
           Simplex.FileTransfer.Server.Stats
           Simplex.FileTransfer.Server.Store
           Simplex.FileTransfer.Server.StoreLog
+          Simplex.Messaging.Agent.Store.Postgres.Common
+          Simplex.Messaging.Agent.Store.Postgres.DB
           Simplex.Messaging.Notifications.Server
           Simplex.Messaging.Notifications.Server.Control
           Simplex.Messaging.Notifications.Server.Env
@@ -231,8 +231,12 @@ library
           Simplex.Messaging.Server.Prometheus
           Simplex.Messaging.Server.QueueStore
           Simplex.Messaging.Server.QueueStore.STM
+          Simplex.Messaging.Server.QueueStore.Postgres
+          Simplex.Messaging.Server.QueueStore.Postgres.Migrations
+          Simplex.Messaging.Server.QueueStore.Types
           Simplex.Messaging.Server.Stats
           Simplex.Messaging.Server.StoreLog
+          Simplex.Messaging.Server.StoreLog.ReadWrite
           Simplex.Messaging.Server.StoreLog.Types
           Simplex.Messaging.Transport.WebSockets
   other-modules:
@@ -302,12 +306,12 @@ library
     build-depends:
         case-insensitive ==1.2.*
       , hashable ==1.4.*
+      , postgresql-simple ==0.7.*
+      , raw-strings-qq ==1.1.*
       , websockets ==0.12.*
   if flag(client_postgres)
     build-depends:
         postgresql-libpq >=0.10.0.0
-      , postgresql-simple ==0.7.*
-      , raw-strings-qq ==1.1.*
     cpp-options: -DdbPostgres
   else
     build-depends:

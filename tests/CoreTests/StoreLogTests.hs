@@ -23,6 +23,8 @@ import Simplex.Messaging.Server.Env.STM (readWriteQueueStore)
 import Simplex.Messaging.Server.MsgStore.Journal
 import Simplex.Messaging.Server.MsgStore.Types
 import Simplex.Messaging.Server.QueueStore
+import Simplex.Messaging.Server.QueueStore.STM (STMQueueStore (..))
+import Simplex.Messaging.Server.QueueStore.Types
 import Simplex.Messaging.Server.StoreLog
 import Test.Hspec
 
@@ -105,11 +107,11 @@ testSMPStoreLog testSuite tests =
     replicateM_ 3 $ testReadWrite t
   where
     testReadWrite SLTC {compacted, state} = do
-      st <- newMsgStore testJournalStoreCfg
+      st <- newMsgStore $ testJournalStoreCfg SQSMemory
       l <- readWriteQueueStore testStoreLogFile st
       storeState st `shouldReturn` state
       closeStoreLog l
       ([], compacted') <- partitionEithers . map strDecode . B.lines <$> B.readFile testStoreLogFile
       compacted' `shouldBe` compacted
-    storeState :: JournalMsgStore -> IO (M.Map RecipientId QueueRec)
-    storeState st = M.mapMaybe id <$> (readTVarIO (queues $ stmQueueStore st) >>= mapM (readTVarIO . queueRec'))
+    storeState :: JournalMsgStore 'QSMemory -> IO (M.Map RecipientId QueueRec)
+    storeState st = M.mapMaybe id <$> (readTVarIO (queues $ stmQueueStore st) >>= mapM (readTVarIO . queueRec))

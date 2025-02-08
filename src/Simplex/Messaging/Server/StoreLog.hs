@@ -6,7 +6,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module Simplex.Messaging.Server.StoreLog
@@ -27,28 +26,24 @@ module Simplex.Messaging.Server.StoreLog
     logDeleteNotifier,
     logUpdateQueueTime,
     readWriteStoreLog,
-    writeQueueStore,
   )
 where
 
 import Control.Applicative (optional, (<|>))
-import Control.Concurrent.STM
 import qualified Control.Exception as E
 import Control.Logger.Simple
 import qualified Data.Attoparsec.ByteString.Char8 as A
 import qualified Data.ByteString.Char8 as B
 import Data.Functor (($>))
-import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format.ISO8601 (iso8601Show)
 import GHC.IO (catchAny)
 import Simplex.Messaging.Encoding.String
 import Simplex.Messaging.Protocol
-import Simplex.Messaging.Server.MsgStore.Types
+-- import Simplex.Messaging.Server.MsgStore.Types
 import Simplex.Messaging.Server.QueueStore
 import Simplex.Messaging.Server.StoreLog.Types
-import qualified Simplex.Messaging.TMap as TM
 import Simplex.Messaging.Util (ifM, tshow, unlessM, whenM)
 import System.Directory (doesFileExist, renameFile)
 import System.IO
@@ -245,12 +240,3 @@ readWriteStoreLog readStore writeStore f st =
       let timedBackup = f <> "." <> iso8601Show ts
       renameFile tempBackup timedBackup
       logInfo $ "original state preserved as " <> T.pack timedBackup
-
-writeQueueStore :: STMStoreClass s => StoreLog 'WriteMode -> s -> IO ()
-writeQueueStore s st = readTVarIO qs >>= mapM_ writeQueue . M.assocs
-  where
-    qs = queues $ stmQueueStore st
-    writeQueue (rId, q) =
-      readTVarIO (queueRec' q) >>= \case
-        Just q' -> logCreateQueue s rId q'
-        Nothing -> atomically $ TM.delete rId qs

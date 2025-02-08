@@ -21,6 +21,8 @@ module Simplex.Messaging.Agent.Store.SQLite.DB
     executeMany,
     query,
     query_,
+    blobFieldDecoder,
+    fromTextField_,
   )
 where
 
@@ -33,10 +35,14 @@ import Data.Int (Int64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
+import qualified Data.Text as T
 import Data.Time (diffUTCTime, getCurrentTime)
-import Database.SQLite.Simple (FromRow, Query, ToRow)
+import Data.Typeable (Typeable)
+import Database.SQLite.Simple (FromRow, ResultError (..), Query, SQLData (..), ToRow)
 import qualified Database.SQLite.Simple as SQL
-import Database.SQLite.Simple.FromField (FromField (..))
+import Database.SQLite.Simple.FromField (FieldParser, FromField (..), returnError)
+import Database.SQLite.Simple.Internal (Field (..))
+import Database.SQLite.Simple.Ok (Ok (Ok))
 import Database.SQLite.Simple.ToField (ToField (..))
 import Simplex.Messaging.Parsers (defaultJSON)
 import Simplex.Messaging.TMap (TMap)
@@ -128,5 +134,21 @@ query c sql = timeIt c sql . SQL.query (conn c) sql
 query_ :: FromRow r => Connection -> Query -> IO [r]
 query_ c sql = timeIt c sql $ SQL.query_ (conn c) sql
 {-# INLINE query_ #-}
+
+blobFieldDecoder :: Typeable k => (ByteString -> Either String k) -> FieldParser k
+blobFieldDecoder dec = \case
+  f@(Field (SQLBlob b) _) ->
+    case dec b of
+      Right k -> Ok k
+      Left e -> returnError ConversionFailed f ("couldn't parse field: " ++ e)
+  f -> returnError ConversionFailed f "expecting SQLBlob column type"
+
+fromTextField_ :: Typeable a => (Text -> Maybe a) -> Field -> Ok a
+fromTextField_ fromText = \case
+  f@(Field (SQLText t) _) ->
+    case fromText t of
+      Just x -> Ok x
+      _ -> returnError ConversionFailed f ("invalid text: " <> T.unpack t)
+  f -> returnError ConversionFailed f "expecting SQLText column type"
 
 $(J.deriveJSON defaultJSON ''SlowQueryStats)

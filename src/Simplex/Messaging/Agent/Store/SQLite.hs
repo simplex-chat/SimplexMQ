@@ -68,14 +68,6 @@ import UnliftIO.STM
 
 -- * SQLite Store implementation
 
-data DBOpts = DBOpts
-  { dbFilePath :: FilePath,
-    dbKey :: ScrubbedBytes,
-    keepKey :: Bool,
-    vacuum :: Bool,
-    track :: DB.TrackQueries
-  }
-
 createDBStore :: DBOpts -> [Migration] -> MigrationConfirmation -> IO (Either MigrationError DBStore)
 createDBStore DBOpts {dbFilePath, dbKey, keepKey, track, vacuum} migrations confirmMigrations = do
   let dbDir = takeDirectory dbFilePath

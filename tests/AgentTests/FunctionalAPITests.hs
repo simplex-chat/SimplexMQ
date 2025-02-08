@@ -96,9 +96,8 @@ import Simplex.Messaging.Encoding.String
 import Simplex.Messaging.Notifications.Transport (NTFVersion, pattern VersionNTF)
 import Simplex.Messaging.Protocol (BasicAuth, ErrorType (..), MsgBody, ProtocolServer (..), SubscriptionMode (..), supportedSMPClientVRange)
 import qualified Simplex.Messaging.Protocol as SMP
-import Simplex.Messaging.Server.Env.STM (ServerConfig (..))
+import Simplex.Messaging.Server.Env.STM (AStoreType (..), ServerConfig (..), SStoreType (..))
 import Simplex.Messaging.Server.Expiration
-import Simplex.Messaging.Server.MsgStore.Types (AMSType (..), SMSType (..))
 import Simplex.Messaging.Server.QueueStore.QueueInfo
 import Simplex.Messaging.Transport (ATransport (..), SMPVersion, VersionSMP, authCmdsSMPVersion, currentServerSMPRelayVersion, minClientSMPRelayVersion, minServerSMPRelayVersion, sndAuthKeySMPVersion, supportedSMPHandshakes)
 import Simplex.Messaging.Util (bshow, diffToMicroseconds)
@@ -1325,7 +1324,7 @@ testSkippedMessages t = do
   disposeAgentClient alice2
   disposeAgentClient bob2
   where
-    cfg' = cfg {msgStoreType = AMSType SMSMemory, storeMsgsFile = Nothing}
+    cfg' = cfg {msgStoreType = ASType SSTMemory, storeMsgsFile = Nothing}
 
 testDeliveryAfterSubscriptionError :: HasCallStack => ATransport -> IO ()
 testDeliveryAfterSubscriptionError t = do

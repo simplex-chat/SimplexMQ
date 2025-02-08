@@ -2,6 +2,7 @@
 
 module Simplex.Messaging.Agent.Store.Postgres.Common
   ( DBStore (..),
+    DBOpts (..),
     withConnection,
     withConnection',
     withTransaction,
@@ -24,19 +25,28 @@ data DBStore = DBStore
     dbNew :: Bool
   }
 
+data DBOpts = DBOpts
+  { connstr :: ByteString,
+    schema :: String
+  }
+
 -- TODO [postgres] connection pool
 withConnectionPriority :: DBStore -> Bool -> (PSQL.Connection -> IO a) -> IO a
 withConnectionPriority DBStore {dbConnection} _priority action =
   withMVar dbConnection action
+{-# INLINE withConnectionPriority #-}
 
 withConnection :: DBStore -> (PSQL.Connection -> IO a) -> IO a
 withConnection st = withConnectionPriority st False
+{-# INLINE withConnection #-}
 
 withConnection' :: DBStore -> (PSQL.Connection -> IO a) -> IO a
 withConnection' = withConnection
+{-# INLINE withConnection' #-}
 
 withTransaction' :: DBStore -> (PSQL.Connection -> IO a) -> IO a
 withTransaction' = withTransaction
+{-# INLINE withTransaction' #-}
 
 withTransaction :: DBStore -> (PSQL.Connection -> IO a) -> IO a
 withTransaction st = withTransactionPriority st False

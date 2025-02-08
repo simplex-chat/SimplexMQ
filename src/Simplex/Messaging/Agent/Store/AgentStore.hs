@@ -236,7 +236,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
 import Crypto.Random (ChaChaDRG)
-import Data.Bifunctor (first, second)
+import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Base64.URL as U
 import qualified Data.ByteString.Char8 as B
@@ -246,7 +246,7 @@ import Data.List (foldl', sortBy)
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as L
 import qualified Data.Map.Strict as M
-import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing, listToMaybe)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
 import Data.Ord (Down (..))
 import Data.Text.Encoding (decodeLatin1, encodeUtf8)
 import Data.Time.Clock (NominalDiffTime, UTCTime, addUTCTime, getCurrentTime)
@@ -262,7 +262,7 @@ import Simplex.Messaging.Agent.Stats
 import Simplex.Messaging.Agent.Store
 import Simplex.Messaging.Agent.Store.Common
 import qualified Simplex.Messaging.Agent.Store.DB as DB
-import Simplex.Messaging.Agent.Store.DB (Binary (..), BoolInt (..), FromField (..), ToField (..))
+import Simplex.Messaging.Agent.Store.DB (Binary (..), BoolInt (..), FromField (..), ToField (..), blobFieldDecoder, fromTextField_)
 import qualified Simplex.Messaging.Crypto as C
 import Simplex.Messaging.Crypto.File (CryptoFile (..), CryptoFileArgs (..))
 import Simplex.Messaging.Crypto.Ratchet (PQEncryption (..), PQSupport (..), RatchetX448, SkippedMsgDiff (..), SkippedMsgKeys)
@@ -271,11 +271,11 @@ import Simplex.Messaging.Encoding
 import Simplex.Messaging.Encoding.String
 import Simplex.Messaging.Notifications.Protocol (DeviceToken (..), NtfSubscriptionId, NtfTknStatus (..), NtfTokenId, SMPQueueNtf (..))
 import Simplex.Messaging.Notifications.Types
-import Simplex.Messaging.Parsers (blobFieldParser, fromTextField_)
+import Simplex.Messaging.Parsers (parseAll)
 import Simplex.Messaging.Protocol
 import qualified Simplex.Messaging.Protocol as SMP
 import Simplex.Messaging.Transport.Client (TransportHost)
-import Simplex.Messaging.Util (bshow, catchAllErrors, eitherToMaybe, ifM, tshow, ($>>=), (<$$>))
+import Simplex.Messaging.Util (bshow, catchAllErrors, eitherToMaybe, firstRow, firstRow', ifM, maybeFirstRow, tshow, ($>>=), (<$$>))
 import Simplex.Messaging.Version.Internal
 import qualified UnliftIO.Exception as E
 import UnliftIO.STM
@@ -1700,23 +1700,23 @@ deriving newtype instance FromField InternalId
 
 instance ToField AgentMessageType where toField = toField . Binary . smpEncode
 
-instance FromField AgentMessageType where fromField = blobFieldParser smpP
+instance FromField AgentMessageType where fromField = blobFieldDecoder smpDecode
 
 instance ToField MsgIntegrity where toField = toField . Binary . strEncode
 
-instance FromField MsgIntegrity where fromField = blobFieldParser strP
+instance FromField MsgIntegrity where fromField = blobFieldDecoder strDecode
 
 instance ToField SMPQueueUri where toField = toField . Binary . strEncode
 
-instance FromField SMPQueueUri where fromField = blobFieldParser strP
+instance FromField SMPQueueUri where fromField = blobFieldDecoder strDecode
 
 instance ToField AConnectionRequestUri where toField = toField . Binary . strEncode
 
-instance FromField AConnectionRequestUri where fromField = blobFieldParser strP
+instance FromField AConnectionRequestUri where fromField = blobFieldDecoder strDecode
 
 instance ConnectionModeI c => ToField (ConnectionRequestUri c) where toField = toField . Binary . strEncode
 
-instance (E.Typeable c, ConnectionModeI c) => FromField (ConnectionRequestUri c) where fromField = blobFieldParser strP
+instance (E.Typeable c, ConnectionModeI c) => FromField (ConnectionRequestUri c) where fromField = blobFieldDecoder strDecode
 
 instance ToField ConnectionMode where toField = toField . decodeLatin1 . strEncode
 
@@ -1732,7 +1732,7 @@ instance FromField MsgFlags where fromField = fromTextField_ $ eitherToMaybe . s
 
 instance ToField [SMPQueueInfo] where toField = toField . Binary . smpEncodeList
 
-instance FromField [SMPQueueInfo] where fromField = blobFieldParser smpListP
+instance FromField [SMPQueueInfo] where fromField = blobFieldDecoder $ parseAll smpListP
 
 instance ToField (NonEmpty TransportHost) where toField = toField . decodeLatin1 . strEncode
 
@@ -1740,11 +1740,11 @@ instance FromField (NonEmpty TransportHost) where fromField = fromTextField_ $ e
 
 instance ToField AgentCommand where toField = toField . Binary . strEncode
 
-instance FromField AgentCommand where fromField = blobFieldParser strP
+instance FromField AgentCommand where fromField = blobFieldDecoder strDecode
 
 instance ToField AgentCommandTag where toField = toField . Binary . strEncode
 
-instance FromField AgentCommandTag where fromField = blobFieldParser strP
+instance FromField AgentCommandTag where fromField = blobFieldDecoder strDecode
 
 instance ToField MsgReceiptStatus where toField = toField . decodeLatin1 . strEncode
 
@@ -1762,22 +1762,9 @@ deriving newtype instance ToField ChunkReplicaId
 
 deriving newtype instance FromField ChunkReplicaId
 
-listToEither :: e -> [a] -> Either e a
-listToEither _ (x : _) = Right x
-listToEither e _ = Left e
-
-firstRow :: (a -> b) -> e -> IO [a] -> IO (Either e b)
-firstRow f e a = second f . listToEither e <$> a
-
-maybeFirstRow :: Functor f => (a -> b) -> f [a] -> f (Maybe b)
-maybeFirstRow f q = fmap f . listToMaybe <$> q
-
 fromOnlyBI :: Only BoolInt -> Bool
 fromOnlyBI (Only (BI b)) = b
 {-# INLINE fromOnlyBI #-}
-
-firstRow' :: (a -> Either e b) -> e -> IO [a] -> IO (Either e b)
-firstRow' f e a = (f <=< listToEither e) <$> a
 
 #if !defined(dbPostgres)
 {- ORMOLU_DISABLE -}

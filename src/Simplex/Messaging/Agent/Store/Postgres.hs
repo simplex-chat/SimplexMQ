@@ -34,11 +34,6 @@ import UnliftIO.Exception (bracketOnError, onException)
 import UnliftIO.MVar
 import UnliftIO.STM
 
-data DBOpts = DBOpts
-  { connstr :: ByteString,
-    schema :: String
-  }
-
 -- | Create a new Postgres DBStore with the given connection string, schema name and migrations.
 -- If passed schema does not exist in connectInfo database, it will be created.
 -- Applies necessary migrations to schema.

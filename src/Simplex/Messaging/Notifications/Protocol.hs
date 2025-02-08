@@ -28,12 +28,11 @@ import Data.Time.Clock.System
 import Data.Type.Equality
 import Data.Word (Word16)
 import Simplex.Messaging.Agent.Protocol (updateSMPServerHosts)
-import Simplex.Messaging.Agent.Store.DB (FromField (..), ToField (..))
+import Simplex.Messaging.Agent.Store.DB (FromField (..), ToField (..), fromTextField_)
 import qualified Simplex.Messaging.Crypto as C
 import Simplex.Messaging.Encoding
 import Simplex.Messaging.Encoding.String
 import Simplex.Messaging.Notifications.Transport (NTFVersion, invalidReasonNTFVersion, ntfClientHandshake)
-import Simplex.Messaging.Parsers (fromTextField_)
 import Simplex.Messaging.Protocol hiding (Command (..), CommandTag (..))
 import Simplex.Messaging.Util (eitherToMaybe, (<$?>))
 

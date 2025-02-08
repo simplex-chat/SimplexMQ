@@ -10,7 +10,7 @@ import Control.Monad.IO.Unlift
 import Control.Monad.Trans.Except
 import Data.Aeson (FromJSON, ToJSON)
 import qualified Data.Aeson as J
-import Data.Bifunctor (first)
+import Data.Bifunctor (first, second)
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as LB
@@ -19,6 +19,7 @@ import Data.Int (Int64)
 import Data.List (groupBy, sortOn)
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as L
+import Data.Maybe (listToMaybe)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Data.Text (Text)
@@ -85,6 +86,10 @@ unlessM :: Monad m => m Bool -> m () -> m ()
 unlessM b = ifM b $ pure ()
 {-# INLINE unlessM #-}
 
+anyM :: Monad m => [m Bool] -> m Bool
+anyM = foldM (\r a -> if r then pure r else (r ||) <$!> a) False
+{-# INLINE anyM #-}
+
 ($>>=) :: (Monad m, Monad f, Traversable f) => m (f a) -> (a -> m (f b)) -> m (f b)
 f $>>= g = f >>= fmap join . mapM g
 
@@ -135,6 +140,19 @@ allFinally err action final = tryAllErrors err action >>= \r -> final >> either 
 eitherToMaybe :: Either a b -> Maybe b
 eitherToMaybe = either (const Nothing) Just
 {-# INLINE eitherToMaybe #-}
+
+listToEither :: e -> [a] -> Either e a
+listToEither _ (x : _) = Right x
+listToEither e _ = Left e
+
+firstRow :: (a -> b) -> e -> IO [a] -> IO (Either e b)
+firstRow f e a = second f . listToEither e <$> a
+
+maybeFirstRow :: Functor f => (a -> b) -> f [a] -> f (Maybe b)
+maybeFirstRow f q = fmap f . listToMaybe <$> q
+
+firstRow' :: (a -> Either e b) -> e -> IO [a] -> IO (Either e b)
+firstRow' f e a = (f <=< listToEither e) <$> a
 
 groupOn :: Eq k => (a -> k) -> [a] -> [[a]]
 groupOn = groupBy . eqOn
