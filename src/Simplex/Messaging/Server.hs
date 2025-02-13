@@ -1057,11 +1057,14 @@ disconnectTransport THandle {connection, params = THandleParams {sessionId}} rcv
   where
     loop = do
       threadDelay' $ checkInterval expCfg * 1000000
-      ifM noSubscriptions checkExpired loop
-    checkExpired = do
-      old <- expireBeforeEpoch expCfg
+      ifM noSubscriptions (checkExpired expCfg) (checkExpired expCfg')
+    checkExpired cfg = do
+      old <- expireBeforeEpoch cfg
       ts <- max <$> readTVarIO rcvActiveAt <*> readTVarIO sndActiveAt
       if systemSeconds ts < old then closeConnection connection else loop
+    expCfg' =
+      let ExpirationConfig {ttl} = expCfg
+       in expCfg {ttl = 3 * ttl}
 
 data VerificationResult s = VRVerified (Maybe (StoreQueue s, QueueRec)) | VRFailed
 
