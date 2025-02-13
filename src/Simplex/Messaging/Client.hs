@@ -560,8 +560,9 @@ getProtocolClient g transportSession@(_, srv, _) cfg@ProtocolClientConfig {qSize
           atomically $ do
             writeTVar (connected c) True
             putTMVar cVar $ Right c'
-          raceAny_ ([send c' th, process c', receive c' th] <> [monitor c' | smpPingInterval > 0])
-            `finally` disconnected c'
+          raceAny_ ([send c' th, process c', receive c' th] <> [monitor c' | smpPingInterval > 0]) `finally` do
+            atomically $ writeTVar (connected c) False
+            disconnected c'
 
     send :: Transport c => ProtocolClient v err msg -> THandle v c 'TClient -> IO ()
     send ProtocolClient {client_ = PClient {sndQ}} h = forever $ atomically (readTBQueue sndQ) >>= sendPending
