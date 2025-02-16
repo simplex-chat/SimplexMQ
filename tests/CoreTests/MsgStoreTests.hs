@@ -24,6 +24,7 @@ import Crypto.Random (ChaChaDRG)
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Base64.URL as B64
+import Data.List (isPrefixOf)
 import Data.Maybe (fromJust)
 import Data.Time.Clock.System (getSystemTime)
 import Simplex.Messaging.Crypto (pattern MaxLenBS)
@@ -52,6 +53,7 @@ msgStoreTests = do
     describe "queue state" $ do
       it "should restore queue state from the last line" testQueueState
       it "should recover when message is written and state is not" testMessageState
+      it "should remove journal files when queue is empty" testRemoveJournals
     describe "missing files" $ do
       it "should create read file when missing" testReadFileMissing
       it "should switch to write file when read file missing" testReadFileMissingSwitch
@@ -314,6 +316,66 @@ testMessageState ms = do
     (Msg "message 1", Msg "message 3") <- tryDelPeekMsg ms q mId1
     (Msg "message 3", Nothing) <- tryDelPeekMsg ms q mId3
     liftIO $ closeMsgQueue q
+
+testRemoveJournals :: JournalMsgStore -> IO ()
+testRemoveJournals ms = do
+  g <- C.newRandom
+  (rId, qr) <- testNewQueueRec g True
+  let dir = msgQueueDirectory ms rId
+      statePath = msgQueueStatePath dir $ B.unpack (B64.encode $ unEntityId rId)
+      write q s = writeMsg ms q True =<< mkMessage s
+
+  runRight $ do
+    q <- ExceptT $ addQueue ms rId qr
+    Just (Message {msgId = mId1}, True) <- write q "message 1"
+    Just (Message {msgId = mId2}, False) <- write q "message 2"
+    (Msg "message 1", Msg "message 2") <- tryDelPeekMsg ms q mId1
+    (Msg "message 2", Nothing) <- tryDelPeekMsg ms q mId2
+    liftIO $ closeMsgQueue q
+
+  ls <- B.lines <$> B.readFile statePath
+  length ls `shouldBe` 4
+  journalFilesCount dir `shouldReturn` 1
+
+  runRight $ do
+    q <- ExceptT $ getQueue ms SRecipient rId
+    -- not removed yet
+    liftIO $ journalFilesCount dir `shouldReturn` 1
+    Nothing <- tryPeekMsg ms q
+    -- still not removed, queue is empty and not opened
+    liftIO $ journalFilesCount dir `shouldReturn` 1
+    _mq <- isolateQueue q "test" $ getMsgQueue ms q
+    -- journal is removed
+    liftIO $ journalFilesCount dir `shouldReturn` 0
+    Just (Message {msgId = mId3}, True) <- write q "message 3"
+    -- journal is created
+    liftIO $ journalFilesCount dir `shouldReturn` 1
+    Just (Message {msgId = mId4}, False) <- write q "message 4"
+    (Msg "message 3", Msg "message 4") <- tryDelPeekMsg ms q mId3
+    (Msg "message 4", Nothing) <- tryDelPeekMsg ms q mId4
+    Just (Message {msgId = mId5}, True) <- write q "message 5"
+    Just (Message {msgId = mId6}, False) <- write q "message 6"
+    liftIO $ journalFilesCount dir `shouldReturn` 1
+    Just (Message {msgId = mId7}, False) <- write q "message 7"
+    -- separate write journal is created
+    liftIO $ journalFilesCount dir `shouldReturn` 2
+    Nothing <- write q "message 8"
+    (Msg "message 5", Msg "message 6") <- tryDelPeekMsg ms q mId5
+    liftIO $ journalFilesCount dir `shouldReturn` 2
+    (Msg "message 6", Msg "message 7") <- tryDelPeekMsg ms q mId6
+    -- read journal is removed
+    liftIO $ journalFilesCount dir `shouldReturn` 1
+    (Msg "message 7", Just MessageQuota {msgId = mId8}) <- tryDelPeekMsg ms q mId7
+    (Just MessageQuota {}, Nothing) <- tryDelPeekMsg ms q mId8
+    liftIO $ closeMsgQueue q
+
+  journalFilesCount dir `shouldReturn` 1
+  runRight $ do
+    q <- ExceptT $ getQueue ms SRecipient rId
+    _mq <- isolateQueue q "test" $ getMsgQueue ms q
+    liftIO $ journalFilesCount dir `shouldReturn` 0
+  where
+    journalFilesCount dir = length . filter ("messages." `isPrefixOf`) <$> listDirectory dir
 
 testReadFileMissing :: JournalMsgStore -> IO ()
 testReadFileMissing ms = do
