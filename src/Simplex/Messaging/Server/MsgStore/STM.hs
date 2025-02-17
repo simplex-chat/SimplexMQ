@@ -89,8 +89,8 @@ instance MsgStoreClass STMMsgStore where
   queueRec' = queueRec
   {-# INLINE queueRec' #-}
 
-  getMsgQueue :: STMMsgStore -> STMQueue -> STM STMMsgQueue
-  getMsgQueue _ STMQueue {msgQueue_} = readTVar msgQueue_ >>= maybe newQ pure
+  getMsgQueue :: STMMsgStore -> STMQueue -> Bool -> STM STMMsgQueue
+  getMsgQueue _ STMQueue {msgQueue_} _ = readTVar msgQueue_ >>= maybe newQ pure
     where
       newQ = do
         msgQueue <- newTQueue
@@ -131,7 +131,7 @@ instance MsgStoreClass STMMsgStore where
 
   writeMsg :: STMMsgStore -> STMQueue -> Bool -> Message -> ExceptT ErrorType IO (Maybe (Message, Bool))
   writeMsg ms q' _logState msg = liftIO $ atomically $ do
-    STMMsgQueue {msgQueue = q, canWrite, size} <- getMsgQueue ms q'
+    STMMsgQueue {msgQueue = q, canWrite, size} <- getMsgQueue ms q' True
     canWrt <- readTVar canWrite
     empty <- isEmptyTQueue q
     if canWrt || empty

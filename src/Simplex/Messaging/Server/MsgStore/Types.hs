@@ -54,7 +54,7 @@ class Monad (StoreMonad s) => MsgStoreClass s where
   recipientId' :: StoreQueue s -> RecipientId
   queueRec' :: StoreQueue s -> TVar (Maybe QueueRec)
   getPeekMsgQueue :: s -> StoreQueue s -> StoreMonad s (Maybe (MsgQueue s, Message))
-  getMsgQueue :: s -> StoreQueue s -> StoreMonad s (MsgQueue s)
+  getMsgQueue :: s -> StoreQueue s -> Bool -> StoreMonad s (MsgQueue s)
 
   -- the journal queue will be closed after action if it was initially closed or idle longer than interval in config
   withIdleMsgQueue :: Int64 -> s -> StoreQueue s -> (MsgQueue s -> StoreMonad s a) -> StoreMonad s (Maybe a, Int)
@@ -119,7 +119,7 @@ withPeekMsgQueue st q op a = isolateQueue q op $ getPeekMsgQueue st q >>= a
 deleteExpiredMsgs :: MsgStoreClass s => s -> StoreQueue s -> Int64 -> ExceptT ErrorType IO Int
 deleteExpiredMsgs st q old =
   isolateQueue q "deleteExpiredMsgs" $
-    getMsgQueue st q >>= deleteExpireMsgs_ old q
+    getMsgQueue st q False >>= deleteExpireMsgs_ old q
 
 -- closed and idle queues will be closed after expiration
 -- returns (expired count, queue size after expiration)
