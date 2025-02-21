@@ -29,6 +29,7 @@ import Network.Socket (HostName, ServiceName)
 import Options.Applicative
 import Simplex.Messaging.Encoding.String
 import Simplex.Messaging.Protocol (ProtoServerWithAuth (..), ProtocolServer (..), ProtocolTypeI)
+import Simplex.Messaging.Server.Env.STM (AServerStoreCfg (..), ServerStoreCfg (..), StorePaths (..))
 import Simplex.Messaging.Transport (ATransport (..), TLS, Transport (..))
 import Simplex.Messaging.Transport.Server (AddHTTP, loadFileFingerprint)
 import Simplex.Messaging.Transport.WebSockets (WS)
@@ -300,6 +301,13 @@ printServerConfig transports logFile = do
     let descr = p <> " (" <> transportName t <> ")..."
     putStrLn $ "Serving SMP protocol on port " <> descr
     when addHTTP $ putStrLn $ "Serving static site on port " <> descr
+
+-- TODO [postgres]
+printSMPServerConfig :: [(ServiceName, ATransport, AddHTTP)] -> AServerStoreCfg -> IO ()
+printSMPServerConfig transports (ASSCfg _ _ cfg) = printServerConfig transports $ case cfg of
+  SSCMemory sp_ -> (\StorePaths {storeLogFile} -> storeLogFile) <$> sp_
+  SSCMemoryJournal {storeLogFile} -> Just storeLogFile
+  SSCDatabaseJournal {} -> Just "postgres database"
 
 deleteDirIfExists :: FilePath -> IO ()
 deleteDirIfExists path = whenM (doesDirectoryExist path) $ removeDirectoryRecursive path

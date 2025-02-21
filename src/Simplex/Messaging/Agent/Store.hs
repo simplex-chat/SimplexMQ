@@ -30,7 +30,7 @@ import Data.Type.Equality
 import Simplex.Messaging.Agent.Protocol
 import Simplex.Messaging.Agent.RetryInterval (RI2State)
 import Simplex.Messaging.Agent.Store.Common
-import Simplex.Messaging.Agent.Store.Interface (DBOpts, createDBStore)
+import Simplex.Messaging.Agent.Store.Interface (createDBStore)
 import Simplex.Messaging.Agent.Store.Migrations.App (appMigrations)
 import Simplex.Messaging.Agent.Store.Shared (MigrationConfirmation (..), MigrationError (..))
 import qualified Simplex.Messaging.Crypto as C

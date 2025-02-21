@@ -13,6 +13,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module      : Simplex.Messaging.Server
@@ -95,14 +96,14 @@ import Simplex.Messaging.Server.Control
 import Simplex.Messaging.Server.Env.STM as Env
 import Simplex.Messaging.Server.Expiration
 import Simplex.Messaging.Server.MsgStore
-import Simplex.Messaging.Server.MsgStore.Journal (JournalQueue, closeMsgQueue)
+import Simplex.Messaging.Server.MsgStore.Journal (JournalMsgStore, JournalQueue, closeMsgQueue)
 import Simplex.Messaging.Server.MsgStore.STM
 import Simplex.Messaging.Server.MsgStore.Types
 import Simplex.Messaging.Server.NtfStore
 import Simplex.Messaging.Server.Prometheus
 import Simplex.Messaging.Server.QueueStore
 import Simplex.Messaging.Server.QueueStore.QueueInfo
-import Simplex.Messaging.Server.QueueStore.STM
+import Simplex.Messaging.Server.QueueStore.Types
 import Simplex.Messaging.Server.Stats
 import Simplex.Messaging.TMap (TMap)
 import qualified Simplex.Messaging.TMap as TM
@@ -228,7 +229,7 @@ smpServer started cfg@ServerConfig {transports, transportConfig = tCfg} attachHT
 
     saveServer :: Bool -> M ()
     saveServer drainMsgs = do
-      ams@(AMS _ ms) <- asks msgStore
+      ams@(AMS _ _ ms) <- asks msgStore
       liftIO $ saveServerMessages drainMsgs ams >> closeMsgStore ms
       saveServerNtfs
       saveServerStats
@@ -278,17 +279,17 @@ smpServer started cfg@ServerConfig {transports, transportConfig = tCfg} attachHT
               -- This case catches Just Nothing - it cannot happen here.
               -- Nothing is there only before client thread is started.
               _ -> TM.lookup qId ss >>= mapM readTVar -- do not insert client if it is already disconnected, but send END to any other client
-            clientToBeNotified ac@(AClient _ c')
+            clientToBeNotified ac@(AClient _ _ c')
               | clntId == clientId c' = pure Nothing
               | otherwise = (\yes -> if yes then Just ((qId, subscribed), ac) else Nothing) <$> readTVar (connected c')
         endPreviousSubscriptions :: ((QueueId, Subscribed), AClient) -> IO (Maybe s)
-        endPreviousSubscriptions (qEvt@(qId, _), ac@(AClient _ c)) = do
+        endPreviousSubscriptions (qEvt@(qId, _), ac@(AClient _ _ c)) = do
           atomically $ modifyTVar' (pendingEvts s) $ IM.alter (Just . maybe [qEvt] (qEvt <|)) (clientId c)
           atomically $ do
             sub <- TM.lookupDelete qId (clientSubs c)
             removeWhenNoSubs ac $> sub
         -- remove client from server's subscribed cients
-        removeWhenNoSubs (AClient _ c) = whenM (null <$> readTVar (clientSubs c)) $ modifyTVar' (subClnts s) $ IM.delete (clientId c)
+        removeWhenNoSubs (AClient _ _ c) = whenM (null <$> readTVar (clientSubs c)) $ modifyTVar' (subClnts s) $ IM.delete (clientId c)
 
     deliverNtfsThread :: Server -> M ()
     deliverNtfsThread Server {ntfSubClients} = do
@@ -299,7 +300,7 @@ smpServer started cfg@ServerConfig {transports, transportConfig = tCfg} attachHT
         threadDelay ntfInt
         readTVarIO ntfSubClients >>= mapM_ (deliverNtfs ns stats)
       where
-        deliverNtfs ns stats (AClient _ Client {clientId, ntfSubscriptions, sndQ, connected}) =
+        deliverNtfs ns stats (AClient _ _ Client {clientId, ntfSubscriptions, sndQ, connected}) =
           whenM (currentClient readTVarIO) $ do
             subs <- readTVarIO ntfSubscriptions
             ntfQs <- M.assocs . M.filterWithKey (\nId _ -> M.member nId subs) <$> readTVarIO ns
@@ -345,7 +346,7 @@ smpServer started cfg@ServerConfig {transports, transportConfig = tCfg} attachHT
           ends <- atomically $ swapTVar ref IM.empty
           unless (null ends) $ forM_ (IM.assocs ends) $ \(cId, qEvts) ->
             mapM_ (queueEvts qEvts) . join . IM.lookup cId =<< readTVarIO cls
-        queueEvts qEvts (AClient _ c@Client {connected, sndQ = q}) =
+        queueEvts qEvts (AClient _ _ c@Client {connected, sndQ = q}) =
           whenM (readTVarIO connected) $ do
             sent <- atomically $ ifM (isFullTBQueue q) (pure False) (writeTBQueue q ts $> True)
             if sent
@@ -383,7 +384,7 @@ smpServer started cfg@ServerConfig {transports, transportConfig = tCfg} attachHT
 
     expireMessagesThread :: ExpirationConfig -> M ()
     expireMessagesThread expCfg = do
-      AMS _ ms <- asks msgStore
+      AMS _ _ ms <- asks msgStore
       let interval = checkInterval expCfg * 1000000
       stats <- asks serverStats
       labelMyThread "expireMessagesThread"
@@ -428,9 +429,9 @@ smpServer started cfg@ServerConfig {transports, transportConfig = tCfg} attachHT
       liftIO $ threadDelay' $ 1000000 * (initialDelay + if initialDelay < 0 then 86400 else 0)
       ss@ServerStats {fromTime, qCreated, qSecured, qDeletedAll, qDeletedAllB, qDeletedNew, qDeletedSecured, qSub, qSubAllB, qSubAuth, qSubDuplicate, qSubProhibited, qSubEnd, qSubEndB, ntfCreated, ntfDeleted, ntfDeletedB, ntfSub, ntfSubB, ntfSubAuth, ntfSubDuplicate, msgSent, msgSentAuth, msgSentQuota, msgSentLarge, msgRecv, msgRecvGet, msgGet, msgGetNoMsg, msgGetAuth, msgGetDuplicate, msgGetProhibited, msgExpired, activeQueues, msgSentNtf, msgRecvNtf, activeQueuesNtf, qCount, msgCount, ntfCount, pRelays, pRelaysOwn, pMsgFwds, pMsgFwdsOwn, pMsgFwdsRecv}
         <- asks serverStats
-      AMS _ st <- asks msgStore
-      let STMQueueStore {queues, notifiers} = stmQueueStore st
-          interval = 1000000 * logInterval
+      AMS _ _ (st :: s) <- asks msgStore
+      QueueCounts {queueCount, notifierCount} <- liftIO $ queueCounts @(StoreQueue s) $ queueStore st
+      let interval = 1000000 * logInterval
       forever $ do
         withFile statsFilePath AppendMode $ \h -> liftIO $ do
           hSetBuffering h LineBuffering
@@ -483,8 +484,6 @@ smpServer started cfg@ServerConfig {transports, transportConfig = tCfg} attachHT
           pMsgFwdsOwn' <- getResetProxyStatsData pMsgFwdsOwn
           pMsgFwdsRecv' <- atomicSwapIORef pMsgFwdsRecv 0
           qCount' <- readIORef qCount
-          qCount'' <- M.size <$> readTVarIO queues
-          notifierCount' <- M.size <$> readTVarIO notifiers
           msgCount' <- readIORef msgCount
           ntfCount' <- readIORef ntfCount
           hPutStrLn h $
@@ -537,13 +536,13 @@ smpServer started cfg@ServerConfig {transports, transportConfig = tCfg} attachHT
                        "0", -- dayCount psSub; psSub is removed to reduce memory usage
                        "0", -- weekCount psSub
                        "0", -- monthCount psSub
-                       show qCount'',
+                       show queueCount,
                        show ntfCreated',
                        show ntfDeleted',
                        show ntfSub',
                        show ntfSubAuth',
                        show ntfSubDuplicate',
-                       show notifierCount',
+                       show notifierCount,
                        show qDeletedAllB',
                        show qSubAllB',
                        show qSubEnd',
@@ -569,7 +568,7 @@ smpServer started cfg@ServerConfig {transports, transportConfig = tCfg} attachHT
     savePrometheusMetrics saveInterval metricsFile = do
       labelMyThread "savePrometheusMetrics"
       liftIO $ putStrLn $ "Prometheus metrics saved every " <> show saveInterval <> " seconds to " <> metricsFile
-      AMS _ st <- asks msgStore
+      AMS _ _ st <- asks msgStore
       ss <- asks serverStats
       env <- ask
       let interval = 1000000 * saveInterval
@@ -580,14 +579,12 @@ smpServer started cfg@ServerConfig {transports, transportConfig = tCfg} attachHT
         rtm <- getRealTimeMetrics env
         T.writeFile metricsFile $ prometheusMetrics sm rtm ts
 
-    getServerMetrics :: STMStoreClass s => s -> ServerStats -> IO ServerMetrics
+    getServerMetrics :: forall s. MsgStoreClass s => s -> ServerStats -> IO ServerMetrics
     getServerMetrics st ss = do
       d <- getServerStatsData ss
       let ps = periodStatDataCounts $ _activeQueues d
           psNtf = periodStatDataCounts $ _activeQueuesNtf d
-          STMQueueStore {queues, notifiers} = stmQueueStore st
-      queueCount <- M.size <$> readTVarIO queues
-      notifierCount <- M.size <$> readTVarIO notifiers
+      QueueCounts {queueCount, notifierCount} <- queueCounts @(StoreQueue s) $ queueStore st
       pure ServerMetrics {statsData = d, activeQueueCounts = ps, activeNtfCounts = psNtf, queueCount, notifierCount}
 
     getRealTimeMetrics :: Env -> IO RealTimeMetrics
@@ -664,7 +661,7 @@ smpServer started cfg@ServerConfig {transports, transportConfig = tCfg} attachHT
               CPClients -> withAdminRole $ do
                 active <- unliftIO u (asks clients) >>= readTVarIO
                 hPutStrLn h "clientId,sessionId,connected,createdAt,rcvActiveAt,sndActiveAt,age,subscriptions"
-                forM_ (IM.toList active) $ \(cid, cl) -> forM_ cl $ \(AClient _ Client {sessionId, connected, createdAt, rcvActiveAt, sndActiveAt, subscriptions}) -> do
+                forM_ (IM.toList active) $ \(cid, cl) -> forM_ cl $ \(AClient _ _ Client {sessionId, connected, createdAt, rcvActiveAt, sndActiveAt, subscriptions}) -> do
                   connected' <- bshow <$> readTVarIO connected
                   rcvActiveAt' <- strEncode <$> readTVarIO rcvActiveAt
                   sndActiveAt' <- strEncode <$> readTVarIO sndActiveAt
@@ -674,9 +671,9 @@ smpServer started cfg@ServerConfig {transports, transportConfig = tCfg} attachHT
                   hPutStrLn h . B.unpack $ B.intercalate "," [bshow cid, encode sessionId, connected', strEncode createdAt, rcvActiveAt', sndActiveAt', bshow age, subscriptions']
               CPStats -> withUserRole $ do
                 ss <- unliftIO u $ asks serverStats
-                AMS _ st <- unliftIO u $ asks msgStore
-                let STMQueueStore {queues, notifiers} = stmQueueStore st
-                    getStat :: (ServerStats -> IORef a) -> IO a
+                AMS _ _ (st :: s) <- unliftIO u $ asks msgStore
+                QueueCounts {queueCount, notifierCount} <- queueCounts @(StoreQueue s) $ queueStore st
+                let getStat :: (ServerStats -> IORef a) -> IO a
                     getStat var = readIORef (var ss)
                     putStat :: Show a => String -> (ServerStats -> IORef a) -> IO ()
                     putStat label var = getStat var >>= \v -> hPutStrLn h $ label <> ": " <> show v
@@ -713,9 +710,7 @@ smpServer started cfg@ServerConfig {transports, transportConfig = tCfg} attachHT
                 putStat "msgNtfsB" msgNtfsB
                 putStat "msgNtfExpired" msgNtfExpired
                 putStat "qCount" qCount
-                qCount2 <- M.size <$> readTVarIO queues
-                hPutStrLn h $ "qCount 2: " <> show qCount2
-                notifierCount <- M.size <$> readTVarIO notifiers
+                hPutStrLn h $ "qCount 2: " <> show queueCount
                 hPutStrLn h $ "notifiers: " <> show notifierCount
                 putStat "msgCount" msgCount
                 putStat "ntfCount" ntfCount
@@ -816,7 +811,7 @@ smpServer started cfg@ServerConfig {transports, transportConfig = tCfg} attachHT
                       where
                         addSubs :: (Int, (Int, Int, Int, Int), Int, (Natural, Natural, Natural)) -> Maybe AClient -> IO (Int, (Int, Int, Int, Int), Int, (Natural, Natural, Natural))
                         addSubs acc Nothing = pure acc
-                        addSubs (!subCnt, cnts@(!c1, !c2, !c3, !c4), !clCnt, !qs) (Just acl@(AClient _ cl)) = do
+                        addSubs (!subCnt, cnts@(!c1, !c2, !c3, !c4), !clCnt, !qs) (Just acl@(AClient _ _ cl)) = do
                           subs <- readTVarIO $ subSel cl
                           cnts' <- case countSubs_ of
                             Nothing -> pure cnts
@@ -829,7 +824,7 @@ smpServer started cfg@ServerConfig {transports, transportConfig = tCfg} attachHT
                           pure (subCnt + cnt, cnts', clCnt', qs')
                     clientTBQueueLengths' :: Foldable t => t (Maybe AClient) -> IO (Natural, Natural, Natural)
                     clientTBQueueLengths' = foldM (\acc -> maybe (pure acc) (addQueueLengths acc)) (0, 0, 0)
-                    addQueueLengths (!rl, !sl, !ml) (AClient _ cl) = do
+                    addQueueLengths (!rl, !sl, !ml) (AClient _ _ cl) = do
                       (rl', sl', ml') <- queueLengths cl
                       pure (rl + rl', sl + sl', ml + ml')
                     queueLengths Client {rcvQ, sndQ, msgQ} = do
@@ -849,7 +844,7 @@ smpServer started cfg@ServerConfig {transports, transportConfig = tCfg} attachHT
                               SubThread _ -> (c1, c2, c3 + 1, c4)
                           ProhibitSub -> pure (c1, c2, c3, c4 + 1)
               CPDelete sId -> withUserRole $ unliftIO u $ do
-                AMS _ st <- asks msgStore
+                AMS _ _ st <- asks msgStore
                 r <- liftIO $ runExceptT $ do
                   q <- ExceptT $ getQueue st SSender sId
                   ExceptT $ deleteQueueSize st q
@@ -859,27 +854,27 @@ smpServer started cfg@ServerConfig {transports, transportConfig = tCfg} attachHT
                     updateDeletedStats qr
                     liftIO $ hPutStrLn h $ "ok, " <> show numDeleted <> " messages deleted"
               CPStatus sId -> withUserRole $ unliftIO u $ do
-                AMS _ st <- asks msgStore
+                AMS _ _ st <- asks msgStore
                 q <- liftIO $ getQueueRec st SSender sId
                 liftIO $ hPutStrLn h $ case q of
                   Left e -> "error: " <> show e
                   Right (_, QueueRec {sndSecure, status, updatedAt}) ->
                     "status: " <> show status <> ", updatedAt: " <> show updatedAt <> ", sndSecure: " <> show sndSecure
               CPBlock sId info -> withUserRole $ unliftIO u $ do
-                AMS _ st <- asks msgStore
+                AMS _ _ (st :: s) <- asks msgStore
                 r <- liftIO $ runExceptT $ do
                   q <- ExceptT $ getQueue st SSender sId
-                  ExceptT $ blockQueue st q info
+                  ExceptT $ blockQueue (queueStore st) q info
                 case r of
                   Left e -> liftIO $ hPutStrLn h $ "error: " <> show e
                   Right () -> do
                     incStat . qBlocked =<< asks serverStats
                     liftIO $ hPutStrLn h "ok"
               CPUnblock sId -> withUserRole $ unliftIO u $ do
-                AMS _ st <- asks msgStore
+                AMS _ _ (st :: s) <- asks msgStore
                 r <- liftIO $ runExceptT $ do
                   q <- ExceptT $ getQueue st SSender sId
-                  ExceptT $ unblockQueue st q
+                  ExceptT $ unblockQueue (queueStore st) q
                 liftIO $ hPutStrLn h $ case r of
                   Left e -> "error: " <> show e
                   Right () -> "ok"
@@ -911,13 +906,13 @@ runClientTransport h@THandle {params = thParams@THandleParams {thVersion, sessio
   nextClientId <- asks clientSeq
   clientId <- atomically $ stateTVar nextClientId $ \next -> (next, next + 1)
   atomically $ modifyTVar' active $ IM.insert clientId Nothing
-  AMS msType ms <- asks msgStore
-  c <- liftIO $ newClient msType clientId q thVersion sessionId ts
-  runClientThreads msType ms active c clientId `finally` clientDisconnected c
+  AMS qt mt ms <- asks msgStore
+  c <- liftIO $ newClient qt mt clientId q thVersion sessionId ts
+  runClientThreads qt mt ms active c clientId `finally` clientDisconnected c
   where
-    runClientThreads :: STMStoreClass (MsgStore s) => SMSType s -> MsgStore s -> TVar (IM.IntMap (Maybe AClient)) -> Client (MsgStore s) -> IS.Key -> M ()
-    runClientThreads msType ms active c clientId = do
-      atomically $ modifyTVar' active $ IM.insert clientId $ Just (AClient msType c)
+    runClientThreads :: MsgStoreClass (MsgStore qs ms) => SQSType qs -> SMSType ms -> MsgStore qs ms -> TVar (IM.IntMap (Maybe AClient)) -> Client (MsgStore qs ms) -> IS.Key -> M ()
+    runClientThreads qt mt ms active c clientId = do
+      atomically $ modifyTVar' active $ IM.insert clientId $ Just (AClient qt mt c)
       s <- asks server
       expCfg <- asks $ inactiveClientExpiration . config
       th <- newMVar h -- put TH under a fair lock to interleave messages and command responses
@@ -961,7 +956,7 @@ clientDisconnected c@Client {clientId, subscriptions, ntfSubscriptions, connecte
           mapM_ (\c' -> atomically $ whenM (sameClientId c <$> readTVar c') $ TM.delete qId srvSubs)
 
 sameClientId :: Client s -> AClient -> Bool
-sameClientId Client {clientId} (AClient _ Client {clientId = cId'}) = clientId == cId'
+sameClientId Client {clientId} ac = clientId == clientId' ac
 
 cancelSub :: Sub -> IO ()
 cancelSub s = case subThread s of
@@ -971,7 +966,7 @@ cancelSub s = case subThread s of
       _ -> pure ()
   ProhibitSub -> pure ()
 
-receive :: forall c s. (Transport c, STMStoreClass s) => THandleSMP c 'TServer -> s -> Client s -> M ()
+receive :: forall c s. (Transport c, MsgStoreClass s) => THandleSMP c 'TServer -> s -> Client s -> M ()
 receive h@THandle {params = THandleParams {thAuth}} ms Client {rcvQ, sndQ, rcvActiveAt, sessionId} = do
   labelMyThread . B.unpack $ "client $" <> encode sessionId <> " receive"
   sa <- asks serverActive
@@ -1071,7 +1066,7 @@ data VerificationResult s = VRVerified (Maybe (StoreQueue s, QueueRec)) | VRFail
 -- - the queue or party key do not exist.
 -- In all cases, the time of the verification should depend only on the provided authorization type,
 -- a dummy key is used to run verification in the last two cases, and failure is returned irrespective of the result.
-verifyTransmission :: forall s. STMStoreClass s => s -> Maybe (THandleAuth 'TServer, C.CbNonce) -> Maybe TransmissionAuth -> ByteString -> QueueId -> Cmd -> M (VerificationResult s)
+verifyTransmission :: forall s. MsgStoreClass s => s -> Maybe (THandleAuth 'TServer, C.CbNonce) -> Maybe TransmissionAuth -> ByteString -> QueueId -> Cmd -> M (VerificationResult s)
 verifyTransmission ms auth_ tAuth authorized queueId cmd =
   case cmd of
     Cmd SRecipient (NEW k _ _ _ _) -> pure $ Nothing `verifiedWith` k
@@ -1148,7 +1143,7 @@ forkClient Client {endThreads, endThreadSeq} label action = do
     action `finally` atomically (modifyTVar' endThreads $ IM.delete tId)
   mkWeakThreadId t >>= atomically . modifyTVar' endThreads . IM.insert tId
 
-client :: forall s. STMStoreClass s => THandleParams SMPVersion 'TServer -> Server -> s -> Client s -> M ()
+client :: forall s. MsgStoreClass s => THandleParams SMPVersion 'TServer -> Server -> s -> Client s -> M ()
 client
   thParams'
   Server {subscribedQ, ntfSubscribedQ, subscribers}
@@ -1319,7 +1314,7 @@ client
 
         secureQueue_ :: StoreQueue s -> SndPublicAuthKey -> M BrokerMsg
         secureQueue_ q sKey = do
-          liftIO (secureQueue ms q sKey) >>= \case
+          liftIO (secureQueue (queueStore ms) q sKey) >>= \case
             Left e -> pure $ ERR e
             Right () -> do
               stats <- asks serverStats
@@ -1337,7 +1332,7 @@ client
             addNotifierRetry n rcvPublicDhKey rcvNtfDhSecret = do
               notifierId <- randomId =<< asks (queueIdBytes . config)
               let ntfCreds = NtfCreds {notifierId, notifierKey, rcvNtfDhSecret}
-              liftIO (addQueueNotifier ms q ntfCreds) >>= \case
+              liftIO (addQueueNotifier (queueStore ms) q ntfCreds) >>= \case
                 Left DUPLICATE_ -> addNotifierRetry (n - 1) rcvPublicDhKey rcvNtfDhSecret
                 Left e -> pure $ ERR e
                 Right nId_ -> do
@@ -1347,7 +1342,7 @@ client
 
         deleteQueueNotifier_ :: StoreQueue s -> M (Transmission BrokerMsg)
         deleteQueueNotifier_ q =
-          liftIO (deleteQueueNotifier ms q) >>= \case
+          liftIO (deleteQueueNotifier (queueStore ms) q) >>= \case
             Right (Just nId) -> do
               -- Possibly, the same should be done if the queue is suspended, but currently we do not use it
               stats <- asks serverStats
@@ -1360,7 +1355,7 @@ client
             Left e -> pure $ err e
 
         suspendQueue_ :: (StoreQueue s, QueueRec) -> M (Transmission BrokerMsg)
-        suspendQueue_ (q, _) = liftIO $ either err (const ok) <$> suspendQueue ms q
+        suspendQueue_ (q, _) = liftIO $ either err (const ok) <$> suspendQueue (queueStore ms) q
 
         subscribeQueue :: StoreQueue s -> QueueRec -> M (Transmission BrokerMsg)
         subscribeQueue q qr =
@@ -1377,7 +1372,7 @@ client
                   incStat $ qSubDuplicate stats
                   atomically (tryTakeTMVar $ delivered s) >> deliver False s
           where
-            rId = recipientId' q
+            rId = recipientId q
             newSub :: M Sub
             newSub = time "SUB newSub" . atomically $ do
               writeTQueue subscribedQ (rId, clientId, True)
@@ -1441,7 +1436,7 @@ client
               t <- liftIO getSystemDate
               if updatedAt == Just t
                 then action q qr
-                else liftIO (updateQueueTime ms q t) >>= either (pure . err) (action q)
+                else liftIO (updateQueueTime (queueStore ms) q t) >>= either (pure . err) (action q)
 
         subscribeNotifications :: M (Transmission BrokerMsg)
         subscribeNotifications = do
@@ -1538,10 +1533,10 @@ client
                           when (notification msgFlags) $ do
                             mapM_ (`enqueueNotification` msg) (notifier qr)
                             incStat $ msgSentNtf stats
-                            liftIO $ updatePeriodStats (activeQueuesNtf stats) (recipientId' q)
+                            liftIO $ updatePeriodStats (activeQueuesNtf stats) (recipientId q)
                           incStat $ msgSent stats
                           incStat $ msgCount stats
-                          liftIO $ updatePeriodStats (activeQueues stats) (recipientId' q)
+                          liftIO $ updatePeriodStats (activeQueues stats) (recipientId q)
                           pure ok
           where
             mkMessage :: MsgId -> C.MaxLenBS MaxMessageLen -> IO Message
@@ -1569,14 +1564,14 @@ client
               whenM (TM.memberIO rId subscribers) $
                 atomically deliverToSub >>= mapM_ forkDeliver
               where
-                rId = recipientId' q
+                rId = recipientId q
                 deliverToSub =
                   -- lookup has ot be in the same transaction,
                   -- so that if subscription ends, it re-evalutates
                   -- and delivery is cancelled -
                   -- the new client will receive message in response to SUB.
                   (TM.lookup rId subscribers >>= mapM readTVar)
-                    $>>= \rc@(AClient _ Client {subscriptions = subs, sndQ = sndQ'}) -> TM.lookup rId subs
+                    $>>= \rc@(AClient _ _ Client {subscriptions = subs, sndQ = sndQ'}) -> TM.lookup rId subs
                     $>>= \s@Sub {subThread, delivered} -> case subThread of
                       ProhibitSub -> pure Nothing
                       ServerSub st -> readTVar st >>= \case
@@ -1593,7 +1588,7 @@ client
                   let encMsg = encryptMsg qr msg
                   writeTBQueue sndQ' [(CorrId "", rId, MSG encMsg)]
                   void $ setDelivered s msg
-                forkDeliver ((AClient _ rc@Client {sndQ = sndQ'}), s@Sub {delivered}, st) = do
+                forkDeliver ((AClient _ _ rc@Client {sndQ = sndQ'}), s@Sub {delivered}, st) = do
                   t <- mkWeakThreadId =<< forkIO deliverThread
                   atomically $ modifyTVar' st $ \case
                     -- this case is needed because deliverThread can exit before it
@@ -1792,10 +1787,10 @@ randomId = fmap EntityId . randomId'
 
 saveServerMessages :: Bool -> AMsgStore -> IO ()
 saveServerMessages drainMsgs = \case
-  AMS SMSMemory ms@STMMsgStore {storeConfig = STMStoreConfig {storePath}} -> case storePath of
+  AMS SQSMemory SMSMemory ms@STMMsgStore {storeConfig = STMStoreConfig {storePath}} -> case storePath of
     Just f -> exportMessages False ms f drainMsgs
     Nothing -> logInfo "undelivered messages are not saved"
-  AMS SMSJournal _ -> logInfo "closed journal message storage"
+  AMS _ SMSJournal _ -> logInfo "closed journal message storage"
 
 exportMessages :: MsgStoreClass s => Bool -> s -> FilePath -> Bool -> IO ()
 exportMessages tty ms f drainMsgs = do
@@ -1808,7 +1803,7 @@ exportMessages tty ms f drainMsgs = do
         exitFailure
   where
     saveQueueMsgs h q = do
-      let rId = recipientId' q
+      let rId = recipientId q
       runExceptT (getQueueMessages drainMsgs ms q) >>= \case
         Right msgs -> Sum (length msgs) <$ BLD.hPutBuilder h (encodeMessages rId msgs)
         Left e -> do
@@ -1824,42 +1819,46 @@ processServerMessages = do
     where
       processMessages :: Maybe Int64 -> Bool -> AMsgStore -> IO (Maybe MessageStats)
       processMessages old_ expire = \case
-        AMS SMSMemory ms@STMMsgStore {storeConfig = STMStoreConfig {storePath}} -> case storePath of
+        AMS SQSMemory SMSMemory ms@STMMsgStore {storeConfig = STMStoreConfig {storePath}} -> case storePath of
           Just f -> ifM (doesFileExist f) (Just <$> importMessages False ms f old_) (pure Nothing)
           Nothing -> pure Nothing
-        AMS SMSJournal ms
-          | expire -> Just <$> case old_ of
-              Just old -> do
-                logInfo "expiring journal store messages..."
-                withAllMsgQueues False ms $ processExpireQueue old
-              Nothing -> do
-                logInfo "validating journal store messages..."
-                withAllMsgQueues False ms $ processValidateQueue
-          | otherwise -> logWarn "skipping message expiration" $> Nothing
-          where
-            processExpireQueue old q =
-              runExceptT expireQueue >>= \case
-                Right (storedMsgsCount, expiredMsgsCount) ->
-                  pure MessageStats {storedMsgsCount, expiredMsgsCount, storedQueues = 1}
-                Left e -> do
-                  logError $ "STORE: processExpireQueue, failed expiring messages in queue, " <> tshow e
-                  exitFailure
-              where
-                expireQueue = do
-                  expired'' <- deleteExpiredMsgs ms q old
-                  stored'' <- getQueueSize ms q
-                  liftIO $ closeMsgQueue q
-                  pure (stored'', expired'')
-            processValidateQueue :: JournalQueue -> IO MessageStats
-            processValidateQueue q =
-              runExceptT (getQueueSize ms q) >>= \case
-                Right storedMsgsCount -> pure newMessageStats {storedMsgsCount, storedQueues = 1}
-                Left e -> do
-                  logError $ "STORE: processValidateQueue, failed opening message queue, " <> tshow e
-                  exitFailure
+        AMS _ SMSJournal ms -> processJournalMessages old_ expire ms
+        -- AMS (SType SQSPostgres SMSJournal) ms -> processJournalMessages old_ expire ms
+      processJournalMessages :: forall s. Maybe Int64 -> Bool -> JournalMsgStore s -> IO (Maybe MessageStats)
+      processJournalMessages old_ expire ms
+        | expire = Just <$> case old_ of
+            Just old -> do
+              logInfo "expiring journal store messages..."
+              withAllMsgQueues False ms $ processExpireQueue old
+            Nothing -> do
+              logInfo "validating journal store messages..."
+              withAllMsgQueues False ms $ processValidateQueue
+        | otherwise = logWarn "skipping message expiration" $> Nothing
+        where
+          processExpireQueue :: Int64 -> JournalQueue s -> IO MessageStats
+          processExpireQueue old q =
+            runExceptT expireQueue >>= \case
+              Right (storedMsgsCount, expiredMsgsCount) ->
+                pure MessageStats {storedMsgsCount, expiredMsgsCount, storedQueues = 1}
+              Left e -> do
+                logError $ "STORE: processExpireQueue, failed expiring messages in queue, " <> tshow e
+                exitFailure
+            where
+              expireQueue = do
+                expired'' <- deleteExpiredMsgs ms q old
+                stored'' <- getQueueSize ms q
+                liftIO $ closeMsgQueue q
+                pure (stored'', expired'')
+          processValidateQueue :: JournalQueue s -> IO MessageStats
+          processValidateQueue q =
+            runExceptT (getQueueSize ms q) >>= \case
+              Right storedMsgsCount -> pure newMessageStats {storedMsgsCount, storedQueues = 1}
+              Left e -> do
+                logError $ "STORE: processValidateQueue, failed opening message queue, " <> tshow e
+                exitFailure
 
 -- TODO this function should be called after importing queues from store log
-importMessages :: forall s. STMStoreClass s => Bool -> s -> FilePath -> Maybe Int64 -> IO MessageStats
+importMessages :: forall s. MsgStoreClass s => Bool -> s -> FilePath -> Maybe Int64 -> IO MessageStats
 importMessages tty ms f old_ = do
   logInfo $ "restoring messages from file " <> T.pack f
   LB.readFile f >>= runExceptT . foldM restoreMsg (0, Nothing, (0, 0, M.empty)) . LB.lines >>= \case
@@ -1872,8 +1871,8 @@ importMessages tty ms f old_ = do
       renameFile f $ f <> ".bak"
       mapM_ setOverQuota_ overQuota
       logQueueStates ms
-      storedQueues <- M.size <$> readTVarIO (queues $ stmQueueStore ms)
-      pure MessageStats {storedMsgsCount, expiredMsgsCount, storedQueues}
+      QueueCounts {queueCount} <- liftIO $ queueCounts @(StoreQueue s) $ queueStore ms
+      pure MessageStats {storedMsgsCount, expiredMsgsCount, storedQueues = queueCount}
   where
     progress i = "Processed " <> show i <> " lines"
     restoreMsg :: (Int, Maybe (RecipientId, StoreQueue s), (Int, Int, M.Map RecipientId (StoreQueue s))) -> LB.ByteString -> ExceptT String IO (Int, Maybe (RecipientId, StoreQueue s), (Int, Int, M.Map RecipientId (StoreQueue s)))
@@ -1980,8 +1979,8 @@ restoreServerStats msgStats_ ntfStats = asks (serverStatsBackupFile . config) >>
       liftIO (strDecode <$> B.readFile f) >>= \case
         Right d@ServerStatsData {_qCount = statsQCount, _msgCount = statsMsgCount, _ntfCount = statsNtfCount} -> do
           s <- asks serverStats
-          AMS _ st <- asks msgStore
-          _qCount <- M.size <$> readTVarIO (queues $ stmQueueStore st)
+          AMS _ _ (st :: s) <- asks msgStore
+          QueueCounts {queueCount = _qCount} <- liftIO $ queueCounts @(StoreQueue s) $ queueStore st
           let _msgCount = maybe statsMsgCount storedMsgsCount msgStats_
               _ntfCount = storedMsgsCount ntfStats
               _msgExpired' = _msgExpired d + maybe 0 expiredMsgsCount msgStats_

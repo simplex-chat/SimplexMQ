@@ -23,9 +23,12 @@ import GHC.IO.Exception (IOException (..))
 import qualified GHC.IO.Exception as IOException
 import NtfServerTests (ntfServerTests)
 import RemoteControl (remoteControlTests)
+import SMPClient (skipOnCI, testServerDBConnectInfo)
 import SMPProxyTests (smpProxyTests)
 import ServerTests
-import Simplex.Messaging.Server.MsgStore.Types (AMSType (..), SMSType (..))
+import Simplex.Messaging.Agent.Store.Postgres.Util (createDBAndUserIfNotExists, dropDatabaseAndUser)
+import Simplex.Messaging.Server.Env.STM (AStoreType (..))
+import Simplex.Messaging.Server.MsgStore.Types (SMSType (..), SQSType (..))
 import Simplex.Messaging.Transport (TLS, Transport (..))
 -- import Simplex.Messaging.Transport.WebSockets (WS)
 import System.Directory (createDirectoryIfMissing, removeDirectoryRecursive)
@@ -51,6 +54,7 @@ main = do
     setEnv "APNS_KEY_ID" "H82WD9K9AQ"
     setEnv "APNS_KEY_FILE" "./tests/fixtures/AuthKey_H82WD9K9AQ.p8"
     hspec
+    -- TODO [postgres] run tests with postgres server locally and maybe in CI
 #if defined(dbPostgres)
       . beforeAll_ (dropDatabaseAndUser testDBConnectInfo >> createDBAndUserIfNotExists testDBConnectInfo)
       . afterAll_ (dropDatabaseAndUser testDBConnectInfo)
@@ -74,14 +78,21 @@ main = do
           describe "Store log tests" storeLogTests
           describe "TRcvQueues tests" tRcvQueuesTests
           describe "Util tests" utilTests
+        skipOnCI $
+          beforeAll_ (dropDatabaseAndUser testServerDBConnectInfo >> createDBAndUserIfNotExists testServerDBConnectInfo)
+            $ afterAll_ (dropDatabaseAndUser testServerDBConnectInfo)
+            -- TODO [postgres] fix store log tests
+            $ xdescribe "SMP server via TLS, postgres+jornal message store" $ do
+                describe "SMP syntax" $ serverSyntaxTests (transport @TLS)
+                before (pure (transport @TLS, ASType SQSPostgres SMSJournal)) serverTests
         describe "SMP server via TLS, jornal message store" $ do
           describe "SMP syntax" $ serverSyntaxTests (transport @TLS)
-          before (pure (transport @TLS, AMSType SMSJournal)) serverTests
+          before (pure (transport @TLS, ASType SQSMemory SMSJournal)) serverTests
         describe "SMP server via TLS, memory message store" $
-          before (pure (transport @TLS, AMSType SMSMemory)) serverTests
+          before (pure (transport @TLS, ASType SQSMemory SMSMemory)) serverTests
         -- xdescribe "SMP server via WebSockets" $ do
         --   describe "SMP syntax" $ serverSyntaxTests (transport @WS)
-        --   before (pure (transport @WS, AMSType SMSJournal)) serverTests
+        --   before (pure (transport @WS, ASType SQSMemory SMSJournal)) serverTests
         describe "Notifications server" $ ntfServerTests (transport @TLS)
         describe "SMP client agent" $ agentTests (transport @TLS)
         describe "SMP proxy" smpProxyTests

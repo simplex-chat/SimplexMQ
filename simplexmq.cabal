@@ -148,16 +148,9 @@ library
       Simplex.RemoteControl.Types
   if flag(client_postgres)
       exposed-modules:
-          Simplex.Messaging.Agent.Store.Postgres
-          Simplex.Messaging.Agent.Store.Postgres.Common
-          Simplex.Messaging.Agent.Store.Postgres.DB
-          Simplex.Messaging.Agent.Store.Postgres.Migrations
           Simplex.Messaging.Agent.Store.Postgres.Migrations.App
           Simplex.Messaging.Agent.Store.Postgres.Migrations.M20241210_initial
           Simplex.Messaging.Agent.Store.Postgres.Migrations.M20250203_msg_bodies
-      if !flag(client_library)
-          exposed-modules:
-              Simplex.Messaging.Agent.Store.Postgres.Util
   else
       exposed-modules:
           Simplex.Messaging.Agent.Store.SQLite
@@ -213,6 +206,11 @@ library
           Simplex.FileTransfer.Server.Stats
           Simplex.FileTransfer.Server.Store
           Simplex.FileTransfer.Server.StoreLog
+          Simplex.Messaging.Agent.Store.Postgres
+          Simplex.Messaging.Agent.Store.Postgres.Common
+          Simplex.Messaging.Agent.Store.Postgres.DB
+          Simplex.Messaging.Agent.Store.Postgres.Migrations
+          Simplex.Messaging.Agent.Store.Postgres.Util
           Simplex.Messaging.Notifications.Server
           Simplex.Messaging.Notifications.Server.Control
           Simplex.Messaging.Notifications.Server.Env
@@ -236,8 +234,12 @@ library
           Simplex.Messaging.Server.Prometheus
           Simplex.Messaging.Server.QueueStore
           Simplex.Messaging.Server.QueueStore.STM
+          Simplex.Messaging.Server.QueueStore.Postgres
+          Simplex.Messaging.Server.QueueStore.Postgres.Migrations
+          Simplex.Messaging.Server.QueueStore.Types
           Simplex.Messaging.Server.Stats
           Simplex.Messaging.Server.StoreLog
+          Simplex.Messaging.Server.StoreLog.ReadWrite
           Simplex.Messaging.Server.StoreLog.Types
           Simplex.Messaging.Transport.WebSockets
   other-modules:
@@ -304,15 +306,16 @@ library
         case-insensitive ==1.2.*
       , hashable ==1.4.*
       , ini ==0.4.1
+      , postgresql-simple ==0.7.*
       , optparse-applicative >=0.15 && <0.17
       , process ==1.6.*
+      , raw-strings-qq ==1.1.*
       , temporary ==1.3.*
       , websockets ==0.12.*
-  if flag(client_postgres)
+  if flag(client_postgres) || !flag(client_library)
     build-depends:
         postgresql-libpq >=0.10.0.0
-      , postgresql-simple ==0.7.*
-      , raw-strings-qq ==1.1.*
+  if flag(client_postgres)
     cpp-options: -DdbPostgres
   else
     build-depends:
@@ -490,6 +493,7 @@ test-suite simplexmq-test
     , memory
     , mtl
     , network
+    , postgresql-simple ==0.7.*
     , process
     , QuickCheck ==2.14.*
     , random
@@ -513,7 +517,6 @@ test-suite simplexmq-test
   if flag(client_postgres)
     build-depends:
         postgresql-libpq >=0.10.0.0
-      , postgresql-simple ==0.7.*
       , raw-strings-qq ==1.1.*
     cpp-options: -DdbPostgres
   else

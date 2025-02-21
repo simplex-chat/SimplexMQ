@@ -168,7 +168,7 @@ import Data.Time.Clock.System (SystemTime)
 import Data.Type.Equality
 import Data.Typeable ()
 import Data.Word (Word16, Word32)
-import Simplex.Messaging.Agent.Store.DB (Binary (..), FromField (..), ToField (..))
+import Simplex.Messaging.Agent.Store.DB (Binary (..), FromField (..), ToField (..), blobFieldDecoder, fromTextField_)
 import Simplex.FileTransfer.Description
 import Simplex.FileTransfer.Protocol (FileParty (..))
 import Simplex.FileTransfer.Transport (XFTPErrorType)
@@ -1016,7 +1016,7 @@ instance Encoding AMessage where
 
 instance ToField AMessage where toField = toField . Binary . smpEncode
 
-instance FromField AMessage where fromField = blobFieldParser smpP
+instance FromField AMessage where fromField = blobFieldDecoder smpDecode
 
 instance Encoding AMessageReceipt where
   smpEncode AMessageReceipt {agentMsgId, msgHash, rcptInfo} =

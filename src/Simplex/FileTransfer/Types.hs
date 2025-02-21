@@ -22,7 +22,7 @@ import Simplex.Messaging.Encoding.String
 import Simplex.Messaging.Parsers
 import Simplex.Messaging.Protocol (XFTPServer)
 import System.FilePath ((</>))
-import Simplex.Messaging.Agent.Store.DB (FromField (..), ToField (..))
+import Simplex.Messaging.Agent.Store.DB (FromField (..), ToField (..), fromTextField_)
 
 type RcvFileId = ByteString -- Agent entity ID
 

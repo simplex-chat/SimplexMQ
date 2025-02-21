@@ -11,8 +11,8 @@ import Data.Int (Int64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import Simplex.Messaging.Agent.Protocol (UserId)
-import Simplex.Messaging.Agent.Store.DB (FromField (..), ToField (..))
-import Simplex.Messaging.Parsers (defaultJSON, fromTextField_)
+import Simplex.Messaging.Agent.Store.DB (FromField (..), ToField (..), fromTextField_)
+import Simplex.Messaging.Parsers (defaultJSON)
 import Simplex.Messaging.Protocol (NtfServer, SMPServer, XFTPServer)
 import Simplex.Messaging.Util (decodeJSON, encodeJSON)
 import UnliftIO.STM

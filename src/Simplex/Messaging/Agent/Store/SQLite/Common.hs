@@ -5,6 +5,7 @@
 
 module Simplex.Messaging.Agent.Store.SQLite.Common
   ( DBStore (..),
+    DBOpts (..),
     withConnection,
     withConnection',
     withTransaction,
@@ -37,6 +38,14 @@ data DBStore = DBStore
     dbConnection :: MVar DB.Connection,
     dbClosed :: TVar Bool,
     dbNew :: Bool
+  }
+
+data DBOpts = DBOpts
+  { dbFilePath :: FilePath,
+    dbKey :: ScrubbedBytes,
+    keepKey :: Bool,
+    vacuum :: Bool,
+    track :: DB.TrackQueries
   }
 
 withConnectionPriority :: DBStore -> Bool -> (DB.Connection -> IO a) -> IO a

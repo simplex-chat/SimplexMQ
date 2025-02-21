@@ -16,4 +16,3 @@ import Simplex.Messaging.Agent.Store.Postgres.DB
   where
 import Simplex.Messaging.Agent.Store.SQLite.DB
 #endif
-

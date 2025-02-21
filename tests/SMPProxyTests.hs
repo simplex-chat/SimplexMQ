@@ -151,7 +151,9 @@ smpProxyTests = do
     twoServersNoConc = twoServers_ proxyCfg {serverClientConcurrency = 1} cfgV8 {msgQueueQuota = 128, maxJournalMsgCount = 256}
     twoServers_ cfg1 cfg2 runTest =
       withSmpServerConfigOn (transport @TLS) cfg1 testPort $ \_ ->
-        let cfg2' = cfg2 {storeLogFile = Just testStoreLogFile2, storeMsgsFile = Just testStoreMsgsDir2}
+        let cfg2' = journalCfg cfg2 testStoreLogFile2 testStoreMsgsDir2
+        -- TODO [postgres]
+        -- let cfg2' = journalCfg cfg2 testStoreDBOpts2 testStoreMsgsDir2
          in withSmpServerConfigOn (transport @TLS) cfg2' testPort2 $ const runTest
 
 deliverMessageViaProxy :: (C.AlgorithmI a, C.AuthAlgorithm a) => SMPServer -> SMPServer -> C.SAlgorithm a -> ByteString -> ByteString -> IO ()
@@ -390,10 +392,14 @@ agentViaProxyRetryOffline = do
   where
     withServer :: (ThreadId -> IO a) -> IO a
     withServer = withServer_ testStoreLogFile testStoreMsgsDir testStoreNtfsFile testPort
+    -- TODO [postgres]
+    -- withServer = withServer_ testStoreDBOpts testStoreMsgsDir testStoreNtfsFile testPort
     withServer2 :: (ThreadId -> IO a) -> IO a
     withServer2 = withServer_ testStoreLogFile2 testStoreMsgsDir2 testStoreNtfsFile2 testPort2
+    -- TODO [postgres]
+    -- withServer2 = withServer_ testStoreDBOpts2 testStoreMsgsDir2 testStoreNtfsFile2 testPort2
     withServer_ storeLog storeMsgs storeNtfs =
-      withSmpServerConfigOn (transport @TLS) proxyCfg {storeLogFile = Just storeLog, storeMsgsFile = Just storeMsgs, storeNtfsFile = Just storeNtfs}
+      withSmpServerConfigOn (transport @TLS) (journalCfg proxyCfg storeLog storeMsgs) {storeNtfsFile = Just storeNtfs}
     a `up` cId = nGet a =##> \case ("", "", UP _ [c]) -> c == cId; _ -> False
     a `down` cId = nGet a =##> \case ("", "", DOWN _ [c]) -> c == cId; _ -> False
     aCfg = agentCfg {messageRetryInterval = fastMessageRetryInterval}
@@ -418,7 +424,7 @@ agentViaProxyRetryNoSession = do
           _ <- runRight $ makeConnection b a
           pure ()
   where
-    withServer2 = withSmpServerConfigOn (transport @TLS) proxyCfg {storeLogFile = Just testStoreLogFile2, storeMsgsFile = Just testStoreMsgsFile2} testPort2
+    withServer2 = withSmpServerConfigOn (transport @TLS) proxyCfgJ2 testPort2
     servers srv = (initAgentServersProxy SPMAlways SPFProhibit) {smp = userServers [srv]}
 
 testNoProxy :: IO ()

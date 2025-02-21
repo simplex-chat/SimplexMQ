@@ -13,16 +13,23 @@ module Simplex.Messaging.Agent.Store.Postgres.DB
     executeMany,
     PSQL.query,
     PSQL.query_,
+    blobFieldDecoder,
+    fromTextField_,
   )
 where
 
 import Control.Monad (void)
+import Data.ByteString.Char8 (ByteString)
 import Data.Int (Int64)
+import Data.Text (Text)
+import Data.Text.Encoding (decodeUtf8)
+import Data.Typeable (Typeable)
 import Data.Word (Word16, Word32)
 import Database.PostgreSQL.Simple (ResultError (..))
 import qualified Database.PostgreSQL.Simple as PSQL
-import Database.PostgreSQL.Simple.FromField (FromField (..), returnError)
+import Database.PostgreSQL.Simple.FromField (Field (..), FieldParser, FromField (..), returnError)
 import Database.PostgreSQL.Simple.ToField (ToField (..))
+import Database.PostgreSQL.Simple.TypeInfo.Static (textOid, varcharOid)
 
 newtype BoolInt = BI {unBI :: Bool}
 
@@ -63,3 +70,20 @@ instance FromField Word16 where
     if i >= 0 && i <= fromIntegral (maxBound :: Word16)
       then pure (fromIntegral i :: Word16)
       else returnError ConversionFailed field "Negative value can't be converted to Word16"
+
+blobFieldDecoder :: Typeable k => (ByteString -> Either String k) -> FieldParser k
+blobFieldDecoder dec f val = do
+  x <- fromField f val
+  case dec x of
+    Right k -> pure k
+    Left e -> returnError ConversionFailed f ("couldn't parse field: " ++ e)
+
+fromTextField_ :: Typeable a => (Text -> Maybe a) -> FieldParser a
+fromTextField_ fromText f val =
+  if typeOid f `elem` [textOid, varcharOid]
+    then case val of
+      Just t -> case fromText $ decodeUtf8 t of
+        Just x -> pure x
+        _ -> returnError ConversionFailed f "invalid text value"
+      Nothing -> returnError UnexpectedNull f "NULL value found for non-NULL field"
+    else returnError Incompatible f "expecting TEXT or VARCHAR column type"

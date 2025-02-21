@@ -116,12 +116,12 @@ import Data.Type.Equality
 import Data.Typeable (Typeable)
 import Data.Word (Word16, Word32)
 import Simplex.Messaging.Agent.QueryString
-import Simplex.Messaging.Agent.Store.DB (Binary (..), BoolInt (..), FromField (..), ToField (..))
+import Simplex.Messaging.Agent.Store.DB (Binary (..), BoolInt (..), FromField (..), ToField (..), blobFieldDecoder)
 import Simplex.Messaging.Crypto
 import Simplex.Messaging.Crypto.SNTRUP761.Bindings
 import Simplex.Messaging.Encoding
 import Simplex.Messaging.Encoding.String
-import Simplex.Messaging.Parsers (blobFieldDecoder, blobFieldParser, defaultJSON, parseE, parseE')
+import Simplex.Messaging.Parsers (defaultJSON, parseE, parseE')
 import Simplex.Messaging.Util (($>>=), (<$?>))
 import Simplex.Messaging.Version
 import Simplex.Messaging.Version.Internal
@@ -1186,4 +1186,4 @@ instance Encoding (MsgEncryptKey a) where
 
 instance AlgorithmI a => ToField (MsgEncryptKey a) where toField = toField . Binary . smpEncode
 
-instance (AlgorithmI a, Typeable a) => FromField (MsgEncryptKey a) where fromField = blobFieldParser smpP
+instance (AlgorithmI a, Typeable a) => FromField (MsgEncryptKey a) where fromField = blobFieldDecoder smpDecode
