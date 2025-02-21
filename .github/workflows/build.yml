@@ -13,6 +13,21 @@ jobs:
   build:
     name: build-${{ matrix.os }}-${{ matrix.ghc }}
     runs-on: ${{ matrix.os }}
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust # Allows passwordless access
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          # Maps tcp port 5432 on service container to the host
+          - 5432:5432
+
     strategy:
       fail-fast: false
       matrix:
@@ -52,6 +67,8 @@ jobs:
         timeout-minutes: 40
         shell: bash
         run: cabal test --test-show-details=direct
+        env:
+          PGHOST: localhost
 
       - name: Prepare binaries
         if: startsWith(github.ref, 'refs/tags/v')

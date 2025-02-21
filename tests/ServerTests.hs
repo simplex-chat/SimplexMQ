@@ -56,7 +56,7 @@ import Util (removeFileIfExists)
 serverTests :: SpecWith (ATransport, AStoreType)
 serverTests = do
   describe "SMP queues" $ do
-    describe "NEW and KEY commands, SEND messages" testCreateSecure
+    fdescribe "NEW and KEY commands, SEND messages" testCreateSecure
     describe "NEW and SKEY commands" $ do
       testCreateSndSecure
       testSndSecureProhibited

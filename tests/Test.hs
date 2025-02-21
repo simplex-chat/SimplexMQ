@@ -78,13 +78,12 @@ main = do
           describe "Store log tests" storeLogTests
           describe "TRcvQueues tests" tRcvQueuesTests
           describe "Util tests" utilTests
-        skipOnCI $
-          beforeAll_ (dropDatabaseAndUser testServerDBConnectInfo >> createDBAndUserIfNotExists testServerDBConnectInfo)
-            $ afterAll_ (dropDatabaseAndUser testServerDBConnectInfo)
-            -- TODO [postgres] fix store log tests
-            $ xdescribe "SMP server via TLS, postgres+jornal message store" $ do
-                describe "SMP syntax" $ serverSyntaxTests (transport @TLS)
-                before (pure (transport @TLS, ASType SQSPostgres SMSJournal)) serverTests
+        beforeAll_ (dropDatabaseAndUser testServerDBConnectInfo >> createDBAndUserIfNotExists testServerDBConnectInfo)
+          $ afterAll_ (dropDatabaseAndUser testServerDBConnectInfo)
+          -- TODO [postgres] fix store log tests
+          $ describe "SMP server via TLS, postgres+jornal message store" $ do
+              describe "SMP syntax" $ serverSyntaxTests (transport @TLS)
+              before (pure (transport @TLS, ASType SQSPostgres SMSJournal)) serverTests
         describe "SMP server via TLS, jornal message store" $ do
           describe "SMP syntax" $ serverSyntaxTests (transport @TLS)
           before (pure (transport @TLS, ASType SQSMemory SMSJournal)) serverTests
