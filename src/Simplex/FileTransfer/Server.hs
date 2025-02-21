@@ -415,7 +415,7 @@ processXFTPRequest HTTP2Body {bodyPart} = \case
         sId <- ExceptT $ addFileRetry st file 3 ts
         rcps <- mapM (ExceptT . addRecipientRetry st 3 sId) rks
         lift $ withFileLog $ \sl -> do
-          logAddFile sl sId file ts
+          logAddFile sl sId file ts EntityActive
           logAddRecipients sl sId rcps
         stats <- asks serverStats
         lift $ incFileStat filesCreated
@@ -426,7 +426,7 @@ processXFTPRequest HTTP2Body {bodyPart} = \case
     addFileRetry :: FileStore -> FileInfo -> Int -> RoundedSystemTime -> M (Either XFTPErrorType XFTPFileId)
     addFileRetry st file n ts =
       retryAdd n $ \sId -> runExceptT $ do
-        ExceptT $ addFile st sId file ts
+        ExceptT $ addFile st sId file ts EntityActive
         pure sId
     addRecipientRetry :: FileStore -> Int -> XFTPFileId -> RcvPublicAuthKey -> M (Either XFTPErrorType FileRecipient)
     addRecipientRetry st n sId rpk =
